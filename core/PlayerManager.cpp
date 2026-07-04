@@ -91,11 +91,17 @@ SH_DECL_HOOK1_void(IServerGameDLL, SetServerHibernation, SH_NOATTRIB, 0, bool);
 #endif
 
 #if SOURCE_ENGINE >= SE_ORANGEBOX
-SH_DECL_EXTERN1_void(ConCommand, Dispatch, SH_NOATTRIB, false, const CCommand &);
+SH_DECL_EXTERN1_void(ConCommand, Dispatch, SH_NOATTRIB, false, const CCommand&);
 #else
 SH_DECL_EXTERN0_void(ConCommand, Dispatch, SH_NOATTRIB, false);
 #endif
-SH_DECL_HOOK2_void(IVEngineServer, ClientPrintf, SH_NOATTRIB, 0, edict_t *, const char *);
+SH_DECL_HOOK2_void(IVEngineServer, ClientPrintf, SH_NOATTRIB, 0, edict_t*, const char*);
+
+#if SOURCE_ENGINE == SE_BMS  
+SH_DECL_HOOK3_void(IServerGameClients, ClientActive, SH_NOATTRIB, 0, edict_t*, bool, bool);
+#else  
+SH_DECL_HOOK2_void(IServerGameClients, ClientActive, SH_NOATTRIB, 0, edict_t*, bool);
+#endif
 
 static void PrintfBuffer_FrameAction(void *data)
 {
@@ -182,6 +188,7 @@ void PlayerManager::OnSourceModAllInitialized()
 	SH_ADD_HOOK(IServerGameDLL, SetServerHibernation, gamedll, SH_MEMBER(this, &PlayerManager::OnServerHibernationUpdate), true);
 #endif
 	SH_ADD_HOOK(IVEngineServer, ClientPrintf, engine, SH_MEMBER(this, &PlayerManager::OnClientPrintf), false);
+	SH_ADD_HOOK(IServerGameClients, ClientActive, serverClients, SH_MEMBER(this, &PlayerManager::OnClientActive), true);
 
 	sharesys->AddInterface(NULL, this);
 
@@ -239,6 +246,7 @@ void PlayerManager::OnSourceModShutdown()
 	SH_REMOVE_HOOK(IServerGameDLL, SetServerHibernation, gamedll, SH_MEMBER(this, &PlayerManager::OnServerHibernationUpdate), true);
 #endif
 	SH_REMOVE_HOOK(IVEngineServer, ClientPrintf, engine, SH_MEMBER(this, &PlayerManager::OnClientPrintf), false);
+	SH_REMOVE_HOOK(IServerGameClients, ClientActive, serverClients, SH_MEMBER(this, &PlayerManager::OnClientActive), true);
 
 	/* Release forwards */
 	forwardsys->ReleaseForward(m_clconnect);
@@ -2001,6 +2009,46 @@ bool PlayerManager::HandleConVarQuery(QueryCvarCookie_t cookie, int client, EQue
 }
 #endif
 
+#if SOURCE_ENGINE == SE_BMS  
+void PlayerManager::OnClientActive(edict_t* pEntity, bool bLoadGame, bool bUnknown)
+#else  
+void PlayerManager::OnClientActive(edict_t* pEntity, bool bLoadGame)
+#endif  
+{
+	int client = IndexOfEdict(pEntity);
+	CPlayer* pPlayer = &m_Players[client];
+
+	if (!pPlayer->IsInGame() && engine->GetPlayerNetInfo(client) != NULL)
+	{
+		// Real player re-entering after save/load — ClientConnect was skipped.  
+		IPlayerInfo* info = playerinfo ? playerinfo->GetPlayerInfo(pEntity) : NULL;
+		const char* name = (info && info->GetName()) ? info->GetName() : "";
+		pPlayer->Initialize(name, "127.0.0.1", pEntity);
+
+		if (playerinfo)
+			pPlayer->m_Info = playerinfo->GetPlayerInfo(pEntity);
+
+		pPlayer->Connect();
+		m_PlayerCount++;
+
+		List<IClientListener*>::iterator iter;
+		IClientListener* pListener = NULL;
+		for (iter = m_hooks.begin(); iter != m_hooks.end(); iter++)
+		{
+			pListener = (*iter);
+			pListener->OnClientPutInServer(client);
+		}
+
+		cell_t res;
+		m_clputinserver->PushCell(client);
+		m_clputinserver->Execute(&res, NULL);
+
+		if (pPlayer->IsAuthorized())
+			pPlayer->DoPostConnectAuthorization();
+	}
+
+	RETURN_META(MRES_IGNORED);
+}
 
 /*******************
  *** PLAYER CODE ***

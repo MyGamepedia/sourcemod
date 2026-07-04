@@ -244,6 +244,13 @@ public:
 private:
 	void OnServerActivate(edict_t *pEdictList, int edictCount, int clientMax);
 	void InvalidatePlayer(CPlayer *pPlayer);
+
+#if SOURCE_ENGINE == SE_BMS    
+	void OnClientActive(edict_t* pEntity, bool bLoadGame, bool bUnknown);
+#else    
+	void OnClientActive(edict_t* pEntity, bool bLoadGame);
+#endif
+
 private:
 	List<IClientListener *> m_hooks;
 	IForward *m_clconnect;
