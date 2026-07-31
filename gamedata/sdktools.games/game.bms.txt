@@ -220,8 +220,10 @@
 		
 		"Keys"
 		{
-			"GameRulesProxy"	"CBM_MP_GameRulesProxy"
-			"GameRulesDataTable" "blackmesa_mp_gamerules_data"
+			"GameRulesProxy"		"CBM_MP_GameRulesProxy"
+			"GameRulesDataTable"	"blackmesa_mp_gamerules_data"
+			"GameRulesProxySP"		"CBM_SP_GameRulesProxy"
+			"GameRulesDataTableSP"	"blackmesa_sp_gamerules_data"
 		}
 	}
 }

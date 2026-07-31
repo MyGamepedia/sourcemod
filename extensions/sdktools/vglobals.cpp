@@ -131,9 +131,17 @@ static ServerClass *UTIL_FindServerClass(const char *classname)
 void UpdateValveGlobals()
 {
 	s_pGameRules = nullptr;
+	
+	bool bShouldLoadMultiplayer = (gpGlobals && gpGlobals->maxClients > 1); //load sp proxy/table if wanted
 
-	const char *pszNetClass = g_pGameConf->GetKeyValue("GameRulesProxy");
-	const char *pszDTName = g_pGameConf->GetKeyValue("GameRulesDataTable");
+	const char *pszNetClass = 	bShouldLoadMultiplayer ? 
+								g_pGameConf->GetKeyValue("GameRulesProxy") : 
+								g_pGameConf->GetKeyValue("GameRulesProxySP");
+								
+	const char *pszDTName = 	bShouldLoadMultiplayer ? 
+								g_pGameConf->GetKeyValue("GameRulesDataTable") : 
+								g_pGameConf->GetKeyValue("GameRulesDataTableSP");
+							
 	if (pszNetClass && pszDTName)
 	{
 		sm_sendprop_info_t info;
