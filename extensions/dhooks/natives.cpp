@@ -83,7 +83,7 @@ bool GetCallbackArgHandleIfValidOrError(HandleType_t type, HandleType_t otherTyp
 	return true;
 }
 
-bool GetObjectAddrOrThis(IPluginContext *pContext, const cell_t *params, void *&retAddr)
+bool GetObjectAddrOrThis(IPluginContext *pContext, const cell_t *params, void *&retAddr, const DHooksInfo **hookInfo = nullptr)
 {
 	HookParamsStruct *paramStruct = NULL;
 	retAddr = NULL;
@@ -92,6 +92,9 @@ bool GetObjectAddrOrThis(IPluginContext *pContext, const cell_t *params, void *&
 	{
 		return false;
 	}
+
+	if(hookInfo)
+		*hookInfo = paramStruct->dg;
 
 	if(params[2] != 0)
 	{
@@ -149,6 +152,32 @@ IPluginFunction *GetCallback(IPluginContext *pContext, HookSetup * setup, const 
 
 	return ret;
 }
+static bool ValidateEntityClientSetup(IPluginContext *pContext, HookSetup *setup)
+{
+	if(setup->hookType != HookType_EntityClient)
+	{
+		pContext->ThrowNativeError("Hook is not a client entity hook");
+		return false;
+	}
+
+	if(setup->returnType == ReturnType_Edict)
+	{
+		pContext->ThrowNativeError("ReturnType_Edict is not supported for client entity hooks: client entities do not have edicts");
+		return false;
+	}
+
+	for(const ParamInfo &param : setup->params)
+	{
+		if(param.type == HookParamType_Edict)
+		{
+			pContext->ThrowNativeError("HookParamType_Edict is not supported for client entity hooks: client entities do not have edicts");
+			return false;
+		}
+	}
+
+	return true;
+}
+
 
 //native Handle:DHookCreate(offset, HookType:hooktype, ReturnType:returntype, ThisPointerType:thistype, DHookCallback:callback = INVALID_FUNCTION); // Callback is now optional here.
 cell_t Native_CreateHook(IPluginContext *pContext, const cell_t *params)
@@ -157,6 +186,11 @@ cell_t Native_CreateHook(IPluginContext *pContext, const cell_t *params)
 	// The methodmap constructor doesn't have the callback parameter anymore.
 	if (params[0] >= 5)
 		callback = pContext->GetFunctionById(params[5]);
+
+	if((HookType)params[2] == HookType_EntityClient && (ReturnType)params[3] == ReturnType_Edict)
+	{
+		return pContext->ThrowNativeError("ReturnType_Edict is not supported for client entity hooks: client entities do not have edicts");
+	}
 
 	HookSetup *setup = new HookSetup((ReturnType)params[3], PASSFLAG_BYVAL, (HookType)params[2], (ThisPointerType)params[4], params[1], callback);
 
@@ -227,6 +261,7 @@ cell_t Native_DHookCreateFromConf(IPluginContext *pContext, const cell_t *params
 		}
 
 		setup = new HookSetup(sig->retType, PASSFLAG_BYVAL, sig->hookType, sig->thisType, offset, nullptr);
+		setup->thisOffset = sig->thisOffset;
 	}
 	// This is a detour.
 	else
@@ -343,6 +378,11 @@ cell_t Native_AddParam(IPluginContext *pContext, const cell_t *params)
 	ParamInfo info;
 
 	info.type = (HookParamType)params[2];
+
+	if(setup->hookType == HookType_EntityClient && info.type == HookParamType_Edict)
+	{
+		return pContext->ThrowNativeError("HookParamType_Edict is not supported for client entity hooks: client entities do not have edicts");
+	}
 
 	if(params[0] >= 4)
 	{
@@ -552,6 +592,99 @@ cell_t Native_HookEntity_Methodmap(IPluginContext *pContext, const cell_t *param
 {
 	return HookEntityImpl(pContext, params, 4, 5);
 }
+cell_t HookEntityClientImpl(IPluginContext *pContext, const cell_t *params, uint32_t callbackIndex, uint32_t removalcbIndex)
+{
+	HookSetup *setup;
+
+	if(!GetHandleIfValidOrError(g_HookSetupHandle, (void **)&setup, pContext, params[1]))
+	{
+		return 0;
+	}
+
+	if(setup->offset == -1)
+	{
+		return pContext->ThrowNativeError("Hook not setup for a virtual hook.");
+	}
+
+	if(!ValidateEntityClientSetup(pContext, setup))
+	{
+		return 0;
+	}
+
+	if(!g_pBmsClientEntityManager)
+	{
+		return pContext->ThrowNativeError("DHookEntityClient requires the BMS Client Entity Manager extension");
+	}
+
+	IPluginFunction *callback = GetCallback(pContext, setup, params, callbackIndex);
+	if(!callback)
+	{
+		return pContext->ThrowNativeError("Failed to hook client entity %i, no callback provided", params[3]);
+	}
+
+	void *entity = g_pBmsClientEntityManager->ResolveClientEntityRef(params[3]);
+	if(!entity)
+	{
+		return pContext->ThrowNativeError("Invalid client entity reference %i (0x%08X)", params[3], params[3]);
+	}
+
+	int clientRef = g_pBmsClientEntityManager->EntityToClientRef(entity);
+	if(clientRef == -1)
+	{
+		return pContext->ThrowNativeError("Could not obtain a stable reference for client entity %i", params[3]);
+	}
+	int clientHandleRef = g_pBmsClientEntityManager->EntityToClientHandleRef(entity);
+	if(clientHandleRef == -1)
+	{
+		return pContext->ThrowNativeError("Could not obtain a serial-qualified reference for client entity %i", params[3]);
+	}
+
+	bool post = params[2] != 0;
+	IPluginFunction *removalcb = pContext->GetFunctionById(params[removalcbIndex]);
+
+	for(int i = static_cast<int>(g_pHooks.size()) - 1; i >= 0; i--)
+	{
+		DHooksManager *manager = g_pHooks.at(i);
+		if(manager->callback->hookType == HookType_EntityClient &&
+			manager->callback->entity == clientRef &&
+			manager->callback->clientHandleRef == clientHandleRef &&
+			manager->addr == reinterpret_cast<intptr_t>(entity) &&
+			manager->callback->offset == setup->offset &&
+			manager->callback->thisOffset == setup->thisOffset &&
+			manager->callback->post == post &&
+			manager->remove_callback == removalcb &&
+			manager->callback->plugin_callback == callback)
+		{
+			return manager->hookid;
+		}
+	}
+
+	void *hookInterface = reinterpret_cast<void *>(
+		reinterpret_cast<uintptr_t>(entity) + static_cast<uintptr_t>(setup->thisOffset));
+	DHooksManager *manager = new DHooksManager(
+		setup, hookInterface, removalcb, callback, post, entity, clientHandleRef);
+	if(!manager->hookid)
+	{
+		delete manager;
+		return 0;
+	}
+
+	g_pHooks.push_back(manager);
+	return manager->hookid;
+}
+
+// native int DHookEntityClient(Handle setup, bool post, int clientEntity, DHookRemovalCB removalcb, DHookCallback callback);
+cell_t Native_HookEntityClient(IPluginContext *pContext, const cell_t *params)
+{
+	return HookEntityClientImpl(pContext, params, 5, 4);
+}
+
+// public native int DynamicHook.HookEntityClient(HookMode mode, int clientEntity, DHookCallback callback, DHookRemovalCB removalcb);
+cell_t Native_HookEntityClient_Methodmap(IPluginContext *pContext, const cell_t *params)
+{
+	return HookEntityClientImpl(pContext, params, 4, 5);
+}
+
 
 cell_t HookGamerulesImpl(IPluginContext *pContext, const cell_t *params, uint32_t callbackIndex, uint32_t removalcbIndex)
 {
@@ -752,7 +885,14 @@ cell_t Native_GetParam(IPluginContext *pContext, const cell_t *params)
 		case HookParamType_Bool:
 			return *(cell_t *)addr != 0;
 		case HookParamType_CBaseEntity:
-			return gamehelpers->EntityToBCompatRef(*(CBaseEntity **)addr);
+		{
+			void *entity = *(void **)addr;
+			if(paramStruct->dg->hookType == HookType_EntityClient)
+			{
+				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(entity) : -1;
+			}
+			return gamehelpers->EntityToBCompatRef((CBaseEntity *)entity);
+		}
 		case HookParamType_Edict:
 			return gamehelpers->IndexOfEdict(*(edict_t **)addr);
 		case HookParamType_Float:
@@ -794,6 +934,17 @@ cell_t Native_SetParam(IPluginContext *pContext, const cell_t *params)
 			break;
 		case HookParamType_CBaseEntity:
 		{
+			if(paramStruct->dg->hookType == HookType_EntityClient)
+			{
+				void *entity = params[3] == -1 ? nullptr :
+					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[3]) : nullptr);
+				if(params[3] != -1 && !entity)
+				{
+					return pContext->ThrowNativeError("Invalid client entity reference passed for param value");
+				}
+				*(void **)addr = entity;
+				break;
+			}
 			if(params[3] == -1)
 			{
 				*(CBaseEntity **)addr = nullptr;
@@ -851,7 +1002,13 @@ cell_t Native_GetReturn(IPluginContext *pContext, const cell_t *params)
 		case ReturnType_Bool:
 			return *(bool *)returnStruct->orgResult? 1 : 0;
 		case ReturnType_CBaseEntity:
+		{
+			if(returnStruct->hookType == HookType_EntityClient)
+			{
+				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(returnStruct->orgResult) : -1;
+			}
 			return gamehelpers->EntityToBCompatRef((CBaseEntity *)returnStruct->orgResult);
+		}
 		case ReturnType_Edict:
 			return gamehelpers->IndexOfEdict((edict_t *)returnStruct->orgResult);
 		case ReturnType_Float:
@@ -881,6 +1038,17 @@ cell_t Native_SetReturn(IPluginContext *pContext, const cell_t *params)
 			break;
 		case ReturnType_CBaseEntity:
 		{
+			if(returnStruct->hookType == HookType_EntityClient)
+			{
+				void *entity = params[2] == -1 ? nullptr :
+					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[2]) : nullptr);
+				if(params[2] != -1 && !entity)
+				{
+					return pContext->ThrowNativeError("Invalid client entity reference passed for return value");
+				}
+				returnStruct->newResult = entity;
+				break;
+			}
 			if(params[2] == -1) {
 				returnStruct->newResult = nullptr;
 			} else {
@@ -1155,12 +1323,61 @@ cell_t Native_RemoveEntityListener(IPluginContext *pContext, const cell_t *param
 	}
 	return pContext->ThrowNativeError("Failed to get g_pEntityListener");
 }
+// native void DHookAddEntityListenerClient(ListenType type, ListenCB callback);
+cell_t Native_AddEntityListenerClient(IPluginContext *pContext, const cell_t *params)
+{
+	if(!g_pBmsClientEntityManager)
+	{
+		return pContext->ThrowNativeError("DHookAddEntityListenerClient requires the BMS Client Entity Manager extension");
+	}
+	if(!g_pEntityListener)
+	{
+		return pContext->ThrowNativeError("Client entity listener is unavailable");
+	}
+	if(params[1] != ListenType_Created && params[1] != ListenType_Deleted)
+	{
+		return pContext->ThrowNativeError("Invalid client entity listener type %i", params[1]);
+	}
+
+	IPluginFunction *callback = pContext->GetFunctionById(params[2]);
+	if(!callback)
+	{
+		return pContext->ThrowNativeError("Invalid client entity listener callback");
+	}
+	return g_pEntityListener->AddPluginClientEntityListener((ListenType)params[1], callback);
+}
+
+// native bool DHookRemoveEntityListenerClient(ListenType type, ListenCB callback);
+cell_t Native_RemoveEntityListenerClient(IPluginContext *pContext, const cell_t *params)
+{
+	if(!g_pBmsClientEntityManager)
+	{
+		return pContext->ThrowNativeError("DHookRemoveEntityListenerClient requires the BMS Client Entity Manager extension");
+	}
+	if(!g_pEntityListener)
+	{
+		return pContext->ThrowNativeError("Client entity listener is unavailable");
+	}
+	if(params[1] != ListenType_Created && params[1] != ListenType_Deleted)
+	{
+		return pContext->ThrowNativeError("Invalid client entity listener type %i", params[1]);
+	}
+
+	IPluginFunction *callback = pContext->GetFunctionById(params[2]);
+	if(!callback)
+	{
+		return pContext->ThrowNativeError("Invalid client entity listener callback");
+	}
+	return g_pEntityListener->RemovePluginClientEntityListener((ListenType)params[1], callback);
+}
+
 
 //native any:DHookGetParamObjectPtrVar(Handle:hParams, num, offset, ObjectValueType:type);
 cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *params)
 {
 	void *addr = NULL;
-	if(!GetObjectAddrOrThis(pContext, params, addr))
+	const DHooksInfo *hookInfo = nullptr;
+	if(!GetObjectAddrOrThis(pContext, params, addr, &hookInfo))
 	{
 		return 0;
 	}
@@ -1176,6 +1393,11 @@ cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 		case ObjectValueType_Ehandle:
 		case ObjectValueType_EhandlePtr:
 		{
+			if(hookInfo->hookType == HookType_EntityClient)
+			{
+				return g_pBmsClientEntityManager ?
+					g_pBmsClientEntityManager->ClientHandleToEntityRef((void *)((intptr_t)addr + params[3])) : -1;
+			}
 			edict_t *pEdict = gamehelpers->GetHandleEntity(*(CBaseHandle *)((intptr_t)addr +params[3]));
 
 			if(!pEdict)
@@ -1190,7 +1412,14 @@ cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 			return sp_ftoc(*(float *)((intptr_t)addr + params[3]));
 		}
 		case ObjectValueType_CBaseEntityPtr:
-			return gamehelpers->EntityToBCompatRef(*(CBaseEntity **)((intptr_t)addr + params[3]));
+		{
+			void *entity = *(void **)((intptr_t)addr + params[3]);
+			if(hookInfo->hookType == HookType_EntityClient)
+			{
+				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(entity) : -1;
+			}
+			return gamehelpers->EntityToBCompatRef((CBaseEntity *)entity);
+		}
 		case ObjectValueType_IntPtr:
 		{
 			int *ptr = *(int **)((intptr_t)addr + params[3]);
@@ -1215,7 +1444,8 @@ cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 cell_t Native_SetParamObjectPtrVar(IPluginContext *pContext, const cell_t *params)
 {
 	void *addr = NULL;
-	if(!GetObjectAddrOrThis(pContext, params, addr))
+	const DHooksInfo *hookInfo = nullptr;
+	if(!GetObjectAddrOrThis(pContext, params, addr, &hookInfo))
 	{
 		return 0;
 	}
@@ -1231,6 +1461,15 @@ cell_t Native_SetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 		case ObjectValueType_Ehandle:
 		case ObjectValueType_EhandlePtr:
 		{
+			if(hookInfo->hookType == HookType_EntityClient)
+			{
+				if(!g_pBmsClientEntityManager ||
+					!g_pBmsClientEntityManager->EntityRefToClientHandle(params[5], (void *)((intptr_t)addr + params[3])))
+				{
+					return pContext->ThrowNativeError("Invalid client entity reference passed for EHANDLE value");
+				}
+				break;
+			}
 			edict_t *pEdict = gamehelpers->EdictOfIndex(params[5]);
 
 			if(!pEdict || pEdict->IsFree())
@@ -1246,6 +1485,17 @@ cell_t Native_SetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 			break;
 		case ObjectValueType_CBaseEntityPtr:
 		{
+			if(hookInfo->hookType == HookType_EntityClient)
+			{
+				void *entity = params[5] == -1 ? nullptr :
+					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[5]) : nullptr);
+				if(params[5] != -1 && !entity)
+				{
+					return pContext->ThrowNativeError("Invalid client entity reference passed");
+				}
+				*(void **)((intptr_t)addr + params[3]) = entity;
+				break;
+			}
 			CBaseEntity *pEnt = gamehelpers->ReferenceToEntity(params[5]);
 
 			if(!pEnt)
@@ -1528,6 +1778,7 @@ sp_nativeinfo_t g_Natives[] =
 	{"DHookEnableDetour",                   Native_EnableDetour},
 	{"DHookDisableDetour",                  Native_DisableDetour},
 	{"DHookEntity",                         Native_HookEntity},
+	{"DHookEntityClient",                   Native_HookEntityClient},
 	{"DHookGamerules",                      Native_HookGamerules},
 	{"DHookRaw",                            Native_HookRaw},
 	{"DHookRemoveHookID",                   Native_RemoveHookID},
@@ -1544,7 +1795,9 @@ sp_nativeinfo_t g_Natives[] =
 	{"DHookSetReturnString",                Native_SetReturnString},
 	{"DHookSetParamString",                 Native_SetParamString},
 	{"DHookAddEntityListener",              Native_AddEntityListener},
+	{"DHookAddEntityListenerClient",        Native_AddEntityListenerClient},
 	{"DHookRemoveEntityListener",           Native_RemoveEntityListener},
+	{"DHookRemoveEntityListenerClient",     Native_RemoveEntityListenerClient},
 	{"DHookGetParamObjectPtrVar",           Native_GetParamObjectPtrVar},
 	{"DHookSetParamObjectPtrVar",           Native_SetParamObjectPtrVar},
 	{"DHookGetParamObjectPtrVarVector",     Native_GetParamObjectPtrVarVector},
@@ -1560,6 +1813,7 @@ sp_nativeinfo_t g_Natives[] =
 	{"DynamicHook.DynamicHook",             Native_CreateHook},
 	{"DynamicHook.FromConf",                Native_DHookCreateFromConf},
 	{"DynamicHook.HookEntity",              Native_HookEntity_Methodmap},
+	{"DynamicHook.HookEntityClient",        Native_HookEntityClient_Methodmap},
 	{"DynamicHook.HookGamerules",           Native_HookGamerules_Methodmap},
 	{"DynamicHook.HookRaw",                 Native_HookRaw_Methodmap},
 	{"DynamicHook.RemoveHook",              Native_RemoveHookID},

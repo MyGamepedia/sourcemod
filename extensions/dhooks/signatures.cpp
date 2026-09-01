@@ -31,6 +31,9 @@
 
 #include <signatures.h>
 
+#include <cerrno>
+#include <climits>
+
 SignatureGameConfig *g_pSignatures;
 
 enum ParseState
@@ -216,6 +219,19 @@ SMCResult SignatureGameConfig::ReadSMC_KeyValue(const SMCStates *states, const c
 			}
 			g_CurrentSignature->offset = value;
 		}
+		else if (!strcmp(key, "thisoffset"))
+		{
+			char *end = nullptr;
+			errno = 0;
+			long thisOffset = strtol(value, &end, 0);
+			if(errno == ERANGE || end == value || *end != '\0' || thisOffset < 0 || thisOffset > INT_MAX)
+			{
+				smutils->LogError(myself, "Invalid this offset \"%s\": expected a non-negative byte offset: line: %i col: %i", value, states->line, states->col);
+				return SMCResult_HaltFail;
+			}
+
+			g_CurrentSignature->thisOffset = static_cast<int>(thisOffset);
+		}
 		else if (!strcmp(key, "callconv"))
 		{
 			CallingConvention callConv;
@@ -246,6 +262,8 @@ SMCResult SignatureGameConfig::ReadSMC_KeyValue(const SMCStates *states, const c
 				hookType = HookType_GameRules;
 			else if (!strcmp(value, "raw"))
 				hookType = HookType_Raw;
+			else if (!strcmp(value, "entityclient"))
+				hookType = HookType_EntityClient;
 			else
 			{
 				smutils->LogError(myself, "Invalid hook type \"%s\": line: %i col: %i", value, states->line, states->col);
@@ -378,6 +396,33 @@ SMCResult SignatureGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 		if (!g_CurrentSignature->address.length() && !g_CurrentSignature->signature.length() && !g_CurrentSignature->offset.length())
 		{
 			smutils->LogError(myself, "Function \"%s\" doesn't have a \"signature\", \"offset\" nor \"address\" set: line: %i col: %i", g_CurrentFunctionName.c_str(), states->line, states->col);
+			return SMCResult_HaltFail;
+		}
+
+		if(g_CurrentSignature->hookType == HookType_EntityClient)
+		{
+			if(!g_CurrentSignature->offset.length())
+			{
+				smutils->LogError(myself, "Function \"%s\" uses hooktype \"entityclient\", which is only valid for virtual hooks with an \"offset\": line: %i col: %i", g_CurrentFunctionName.c_str(), states->line, states->col);
+				return SMCResult_HaltFail;
+			}
+			if(g_CurrentSignature->retType == ReturnType_Edict)
+			{
+				smutils->LogError(myself, "Function \"%s\" uses ReturnType_Edict with hooktype \"entityclient\"; client entities do not have edicts: line: %i col: %i", g_CurrentFunctionName.c_str(), states->line, states->col);
+				return SMCResult_HaltFail;
+			}
+			for(const auto &arg : g_CurrentSignature->args)
+			{
+				if(arg.info.type == HookParamType_Edict)
+				{
+					smutils->LogError(myself, "Function \"%s\" uses HookParamType_Edict in argument \"%s\" with hooktype \"entityclient\"; client entities do not have edicts: line: %i col: %i", g_CurrentFunctionName.c_str(), arg.name.c_str(), states->line, states->col);
+					return SMCResult_HaltFail;
+				}
+			}
+		}
+		else if(g_CurrentSignature->thisOffset != 0)
+		{
+			smutils->LogError(myself, "Function \"%s\" uses \"thisoffset\", which is only supported with hooktype \"entityclient\": line: %i col: %i", g_CurrentFunctionName.c_str(), states->line, states->col);
 			return SMCResult_HaltFail;
 		}
 

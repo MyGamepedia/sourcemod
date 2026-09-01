@@ -238,18 +238,21 @@ void *GenerateThunk(HookSetup* hook)
 }
 #endif
 
-DHooksManager::DHooksManager(HookSetup *setup, void *iface, IPluginFunction *remove_callback, IPluginFunction *plugincb, bool post)
+DHooksManager::DHooksManager(HookSetup *setup, void *iface, IPluginFunction *remove_callback, IPluginFunction *plugincb, bool post, void *entityIdentity, int clientHandleRef)
 {
 	this->callback = MakeHandler(setup);
 	this->hookid = 0;
 	this->remove_callback = remove_callback;
 	this->callback->offset = setup->offset;
+	this->callback->thisOffset = setup->thisOffset;
 	this->callback->plugin_callback = plugincb;
 	this->callback->returnFlag = setup->returnFlag;
 	this->callback->thisType = setup->thisType;
 	this->callback->post = post;
 	this->callback->hookType = setup->hookType;
 	this->callback->params = setup->params;
+	this->callback->int64_address =
+		plugincb->GetParentRuntime()->FindPubvarByName("__Int64_Address__", nullptr) == SP_ERROR_NONE;
 
 	this->addr = 0;
 
@@ -257,13 +260,22 @@ DHooksManager::DHooksManager(HookSetup *setup, void *iface, IPluginFunction *rem
 	{
 		this->callback->entity = gamehelpers->EntityToBCompatRef((CBaseEntity *)iface);
 	}
+	else if(this->callback->hookType == HookType_EntityClient)
+	{
+		void *entity = entityIdentity ? entityIdentity : iface;
+		this->callback->entity = g_pBmsClientEntityManager->EntityToClientRef(entity);
+		this->callback->clientHandleRef = clientHandleRef != -1
+			? clientHandleRef
+			: g_pBmsClientEntityManager->EntityToClientHandleRef(entity);
+		this->callback->entityAddress = reinterpret_cast<intptr_t>(entity);
+		this->addr = (intptr_t)entity;
+	}
 	else
 	{
 		if(this->callback->hookType == HookType_Raw)
 		{
 			this->addr = (intptr_t)iface;
 		}
-		this->callback->entity = -1;
 	}
 
 	CProtoInfoBuilder protoInfo(ProtoInfo::CallConv_ThisCall);
@@ -406,6 +418,7 @@ HookReturnStruct *GetReturnStruct(DHooksCallback *dg)
 {
 	HookReturnStruct *res = new HookReturnStruct();
 	res->isChanged = false;
+	res->hookType = dg->hookType;
 	res->type = dg->returnType;
 	res->orgResult = NULL;
 	res->newResult = NULL;
@@ -482,6 +495,36 @@ HookReturnStruct *GetReturnStruct(DHooksCallback *dg)
 	return res;
 }
 
+static bool ShouldInvokeClientEntityCallback(DHooksCallback *dg)
+{
+	if(dg->hookType != HookType_EntityClient)
+	{
+		return true;
+	}
+
+	if(!dg->active || !dg->plugin_callback || !g_pBmsClientEntityManager)
+	{
+		return false;
+	}
+
+	void *thisAddr = g_SHPtr->GetIfacePtr();
+	if(!thisAddr)
+	{
+		return false;
+	}
+
+	const uintptr_t interfaceAddress = reinterpret_cast<uintptr_t>(thisAddr);
+	if(interfaceAddress < static_cast<uintptr_t>(dg->thisOffset))
+	{
+		return false;
+	}
+
+	void *entity = reinterpret_cast<void *>(
+		interfaceAddress - static_cast<uintptr_t>(dg->thisOffset));
+	return reinterpret_cast<intptr_t>(entity) == dg->entityAddress &&
+		g_pBmsClientEntityManager->IsSameClientEntity(entity, dg->clientHandleRef);
+}
+
 #if defined( WIN32 ) && !defined( KE_ARCH_X64 )
 void *Callback(DHooksCallback *dg, void **argStack, size_t *argsizep)
 #else
@@ -498,6 +541,11 @@ void *Callback(DHooksCallback *dg, void **argStack)
 #else
 	size_t argsize = GetStackArgsSize(dg);
 #endif
+	if(!ShouldInvokeClientEntityCallback(dg))
+	{
+		g_SHPtr->SetRes(MRES_IGNORED);
+		return NULL;
+	}
 	//g_pSM->LogMessage(myself, "[DEFAULT]DHooksCallback(%p) argStack(%p) - argsize(%d)", dg, argStack, argsize);
 
 	if(dg->thisType == ThisPointer_CBaseEntity || dg->thisType == ThisPointer_Address)
@@ -506,6 +554,8 @@ void *Callback(DHooksCallback *dg, void **argStack)
 		if (dg->thisType == ThisPointer_CBaseEntity) {
 			if (thisAddr == nullptr) {
 				dg->plugin_callback->PushCell(-1);
+			} else if (dg->hookType == HookType_EntityClient && g_pBmsClientEntityManager) {
+				dg->plugin_callback->PushCell(dg->entity);
 			} else {
 				dg->plugin_callback->PushCell(gamehelpers->EntityToBCompatRef((CBaseEntity *)thisAddr));
 			}
@@ -696,6 +746,11 @@ float Callback_float(DHooksCallback *dg, void **argStack)
 #else
 	size_t argsize = GetStackArgsSize(dg);
 #endif
+	if(!ShouldInvokeClientEntityCallback(dg))
+	{
+		g_SHPtr->SetRes(MRES_IGNORED);
+		return 0.0f;
+	}
 	//g_pSM->LogMessage(myself, "[FLOAT]DHooksCallback(%p) argStack(%p) - argsize(%d)", dg, argStack, argsize);
 
 	if(dg->thisType == ThisPointer_CBaseEntity || dg->thisType == ThisPointer_Address)
@@ -704,6 +759,8 @@ float Callback_float(DHooksCallback *dg, void **argStack)
 		if (dg->thisType == ThisPointer_CBaseEntity) {
 			if (thisAddr == nullptr) {
 				dg->plugin_callback->PushCell(-1);
+			} else if (dg->hookType == HookType_EntityClient && g_pBmsClientEntityManager) {
+				dg->plugin_callback->PushCell(dg->entity);
 			} else {
 				dg->plugin_callback->PushCell(gamehelpers->EntityToBCompatRef((CBaseEntity *)thisAddr));
 			}
@@ -867,6 +924,11 @@ SDKVector *Callback_vector(DHooksCallback *dg, void **argStack)
 #else
 	size_t argsize = GetStackArgsSize(dg);
 #endif
+	if(!ShouldInvokeClientEntityCallback(dg))
+	{
+		g_SHPtr->SetRes(MRES_IGNORED);
+		return vec_result;
+	}
 	//g_pSM->LogMessage(myself, "[VECTOR]DHooksCallback(%p) argStack(%p) - argsize(%d) - params count %d", dg, argStack, argsize, dg->params.size());
 
 	if(dg->thisType == ThisPointer_CBaseEntity || dg->thisType == ThisPointer_Address)
@@ -875,6 +937,8 @@ SDKVector *Callback_vector(DHooksCallback *dg, void **argStack)
 		if (dg->thisType == ThisPointer_CBaseEntity) {
 			if (thisAddr == nullptr) {
 				dg->plugin_callback->PushCell(-1);
+			} else if (dg->hookType == HookType_EntityClient && g_pBmsClientEntityManager) {
+				dg->plugin_callback->PushCell(dg->entity);
 			} else {
 				dg->plugin_callback->PushCell(gamehelpers->EntityToBCompatRef((CBaseEntity *)thisAddr));
 			}
@@ -1036,6 +1100,11 @@ string_t *Callback_stringt(DHooksCallback *dg, void **argStack)
 	Handle_t pHndl;
 
 	size_t argsize = GetStackArgsSize(dg);
+	if(!ShouldInvokeClientEntityCallback(dg))
+	{
+		g_SHPtr->SetRes(MRES_IGNORED);
+		return string_result;
+	}
 
 	if(dg->thisType == ThisPointer_CBaseEntity || dg->thisType == ThisPointer_Address)
 	{
@@ -1043,6 +1112,8 @@ string_t *Callback_stringt(DHooksCallback *dg, void **argStack)
 		if (dg->thisType == ThisPointer_CBaseEntity) {
 			if (thisAddr == nullptr) {
 				dg->plugin_callback->PushCell(-1);
+			} else if (dg->hookType == HookType_EntityClient && g_pBmsClientEntityManager) {
+				dg->plugin_callback->PushCell(dg->entity);
 			} else {
 				dg->plugin_callback->PushCell(gamehelpers->EntityToBCompatRef((CBaseEntity *)thisAddr));
 			}

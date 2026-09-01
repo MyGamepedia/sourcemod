@@ -106,7 +106,8 @@ enum HookType
 {
 	HookType_Entity,
 	HookType_GameRules,
-	HookType_Raw
+	HookType_Raw,
+	HookType_EntityClient
 };
 
 enum CallingConvention
@@ -517,6 +518,21 @@ methodmap DynamicHook < DHookSetup
 	// @return              A hookid on success, INVALID_HOOK_ID otherwise.
 	// @error               Invalid setup handle, invalid address, invalid hook type or invalid callback.
 	public native int HookEntity(HookMode mode, int entity, DHookCallback callback, DHookRemovalCB removalcb=INVALID_FUNCTION);
+	// Hook a client-side entity.
+	//
+	// Client entity hooks are auto-removed when that client entity is destroyed.
+	// HookParamType_CBaseEntity, ReturnType_CBaseEntity, ObjectValueType_CBaseEntityPtr,
+	// ObjectValueType_Ehandle and ThisPointer_CBaseEntity use client entity references
+	// for setups whose hook type is HookType_EntityClient. Edict types are unsupported.
+	//
+	// @param mode          The desired hook mode - pre or post.
+	// @param clientEntity  Networked client entity index or stable client entity reference.
+	// @param callback      Callback function.
+	// @param removalcb     Optional callback for when the hook is removed.
+	//
+	// @return              A hookid on success, INVALID_HOOK_ID otherwise.
+	// @error               Invalid setup, reference, hook type, callback, edict type, or missing BMS extension.
+	public native int HookEntityClient(HookMode mode, int clientEntity, DHookCallback callback, DHookRemovalCB removalcb=INVALID_FUNCTION);
 
 	// Hook gamerules object.
 	//
@@ -636,6 +652,27 @@ native void DHookAddEntityListener(ListenType type, ListenCB callback);
  * @return                  true if one was removed, false otherwise
  */
 native bool DHookRemoveEntityListener(ListenType type, ListenCB callback);
+/**
+ * Adds a client entity listener hook.
+ *
+ * Created callbacks receive (clientEntRef, classname); deleted callbacks receive (clientEntRef).
+ *
+ * @param type              Type of listener to add.
+ * @param callback          Callback to use.
+ * @error                   Invalid type/callback or BMS Client Entity Manager is unavailable.
+ */
+native void DHookAddEntityListenerClient(ListenType type, ListenCB callback);
+
+/**
+ * Removes a client entity listener hook.
+ *
+ * @param type              Type of listener to remove.
+ * @param callback          Callback this listener was using.
+ *
+ * @return                  true if one was removed, false otherwise.
+ * @error                   Invalid type/callback or BMS Client Entity Manager is unavailable.
+ */
+native bool DHookRemoveEntityListenerClient(ListenType type, ListenCB callback);
 
 /**
  * Creates a hook
@@ -743,6 +780,23 @@ native void DHookAddParam(Handle setup, HookParamType type, int size=-1, DHookPa
  * @error                   Invalid setup handle, invalid address, invalid hook type or invalid callback.
  */
 native int DHookEntity(Handle setup, bool post, int entity, DHookRemovalCB removalcb=INVALID_FUNCTION, DHookCallback callback=INVALID_FUNCTION);
+/**
+ * Hooks a client-side entity.
+ *
+ * The setup must use HookType_EntityClient (or gamedata hooktype "entityclient").
+ * The hook is auto-removed when the client entity is destroyed. Client CBaseEntity/EHANDLE
+ * conversions expose clientEntRef values; HookParamType_Edict and ReturnType_Edict are invalid.
+ *
+ * @param setup             Setup handle to use.
+ * @param post              true for a post hook, false for a pre hook.
+ * @param clientEntity      Networked client entity index or stable client entity reference.
+ * @param removalcb         Optional callback invoked when the hook is removed.
+ * @param callback          Optional hook callback; otherwise it must be stored in setup.
+ *
+ * @return                  INVALID_HOOK_ID on failure, hook id on success.
+ * @error                   Invalid setup/reference/type/callback, edict type, or missing BMS extension.
+ */
+native int DHookEntityClient(Handle setup, bool post, int clientEntity, DHookRemovalCB removalcb=INVALID_FUNCTION, DHookCallback callback=INVALID_FUNCTION);
 
 /**
  * Hook gamerules
@@ -1033,7 +1087,9 @@ public Extension __ext_dhooks =
 public __ext_dhooks_SetNTVOptional()
 {
 	MarkNativeAsOptional("DHookAddEntityListener");
+	MarkNativeAsOptional("DHookAddEntityListenerClient");
 	MarkNativeAsOptional("DHookRemoveEntityListener");
+	MarkNativeAsOptional("DHookRemoveEntityListenerClient");
 	MarkNativeAsOptional("DHookCreate");
 	MarkNativeAsOptional("DHookCreateDetour");
 	MarkNativeAsOptional("DHookCreateFromConf");
@@ -1042,6 +1098,7 @@ public __ext_dhooks_SetNTVOptional()
 	MarkNativeAsOptional("DHookDisableDetour");
 	MarkNativeAsOptional("DHookAddParam");
 	MarkNativeAsOptional("DHookEntity");
+	MarkNativeAsOptional("DHookEntityClient");
 	MarkNativeAsOptional("DHookGamerules");
 	MarkNativeAsOptional("DHookRaw");
 	MarkNativeAsOptional("DHookRemoveHookID");
@@ -1089,6 +1146,7 @@ public __ext_dhooks_SetNTVOptional()
 	MarkNativeAsOptional("DynamicHook.DynamicHook");
 	MarkNativeAsOptional("DynamicHook.FromConf");
 	MarkNativeAsOptional("DynamicHook.HookEntity");
+	MarkNativeAsOptional("DynamicHook.HookEntityClient");
 	MarkNativeAsOptional("DynamicHook.HookGamerules");
 	MarkNativeAsOptional("DynamicHook.HookRaw");
 	MarkNativeAsOptional("DynamicHook.RemoveHook");

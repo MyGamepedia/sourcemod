@@ -42,6 +42,7 @@
 #include <ISDKHooks.h>
 #include <IBinTools.h>
 #include <ISDKTools.h>
+#include <extensions/IBmsClientEntityManager.h>
 #include "sdk-hacks.h"
 #include <thread>
 
@@ -91,7 +92,7 @@ public:
 	 * @return			True if working, false otherwise.
 	 */
 	virtual bool QueryRunning(char *error, size_t maxlength);
-	//virtual bool QueryInterfaceDrop(SMInterface *pInterface);
+	virtual bool QueryInterfaceDrop(SMInterface *pInterface);
 	virtual void NotifyInterfaceDrop(SMInterface *pInterface);
 	virtual void OnCoreMapEnd();
 public:
@@ -131,4 +132,5 @@ public:
 extern SourceHook::IHookManagerAutoGen *g_pHookManager;
 extern sp_nativeinfo_t g_Natives[];
 extern std::thread::id g_MainThreadId;
+extern SourceMod::IBmsClientEntityManager *g_pBmsClientEntityManager;
 #endif // _INCLUDE_SOURCEMOD_EXTENSION_PROPER_H_

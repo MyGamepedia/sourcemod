@@ -121,7 +121,8 @@ enum HookType
 {
 	HookType_Entity,
 	HookType_GameRules,
-	HookType_Raw
+	HookType_Raw,
+	HookType_EntityClient
 };
 
 struct ParamInfo
@@ -145,6 +146,7 @@ public:
 	~HookReturnStruct();
 public:
 	ReturnType type;
+	HookType hookType;
 	bool isChanged;
 	void *orgResult;
 	void *newResult;
@@ -155,12 +157,16 @@ class DHooksInfo
 public:
 	SourceHook::CVector<ParamInfo> params;
 	int offset;
+	int thisOffset;
 	unsigned int returnFlag;
 	ReturnType returnType;
 	bool post;
 	IPluginFunction *plugin_callback;
 	bool int64_address;
 	int entity;
+	int clientHandleRef;
+	intptr_t entityAddress;
+	bool active;
 	ThisPointerType thisType;
 	HookType hookType;
 	CallingConvention thisFuncCallConv;
@@ -171,6 +177,11 @@ class DHooksCallback : public SourceHook::ISHDelegate, public DHooksInfo
 public:
 	DHooksCallback()
 	{
+		int64_address = false;
+		entity = -1;
+		clientHandleRef = -1;
+		entityAddress = 0;
+		active = true;
 		//g_pSM->LogMessage(myself, "DHooksCallback(%p)", this);
 	}
 
@@ -245,6 +256,7 @@ public:
 		this->callConv = CallConv_THISCALL;
 		this->thisType = thisType;
 		this->offset = offset;
+		this->thisOffset = 0;
 		this->funcAddr = nullptr;
 		this->callback = callback;
 		this->hookMethod = Virtual;
@@ -257,6 +269,7 @@ public:
 		this->callConv = callConv;
 		this->thisType = thisType;
 		this->offset = -1;
+		this->thisOffset = 0;
 		this->funcAddr = funcAddr;
 		this->callback = nullptr;
 		this->hookMethod = Detour;
@@ -275,6 +288,7 @@ public:
 	ThisPointerType thisType;
 	SourceHook::CVector<ParamInfo> params;
 	int offset;
+	int thisOffset;
 	void *funcAddr;
 	IPluginFunction *callback;
 	HookMethod hookMethod;
@@ -314,7 +328,7 @@ static DHooksCallback *MakeHandler(HookSetup* hook)
 class DHooksManager
 {
 public:
-	DHooksManager(HookSetup *setup, void *iface, IPluginFunction *remove_callback, IPluginFunction *plugincb, bool post);
+	DHooksManager(HookSetup *setup, void *iface, IPluginFunction *remove_callback, IPluginFunction *plugincb, bool post, void *entityIdentity = nullptr, int clientHandleRef = -1);
 	~DHooksManager()
 	{
 		if(this->hookid)

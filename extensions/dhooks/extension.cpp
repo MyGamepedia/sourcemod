@@ -40,6 +40,7 @@ SMEXT_LINK(&g_DHooksIface);
 IBinTools *g_pBinTools;
 ISDKHooks *g_pSDKHooks;
 ISDKTools *g_pSDKTools;
+SourceMod::IBmsClientEntityManager *g_pBmsClientEntityManager = NULL;
 DHooksEntityListener *g_pEntityListener = NULL;
 
 HandleType_t g_HookSetupHandle = 0;
@@ -85,6 +86,7 @@ bool DHooks::SDK_OnLoad(char *error, size_t maxlength, bool late)
 	sharesys->AddDependency(myself, "bintools.ext", true, true);
 	sharesys->AddDependency(myself, "sdktools.ext", true, true);
 	sharesys->AddDependency(myself, "sdkhooks.ext", true, true);
+	sharesys->AddDependency(myself, "bms_client_entity_manager.ext", false, true);
 
 	sharesys->RegisterLibrary(myself, "dhooks");
 	plsys->AddPluginsListener(this);
@@ -119,6 +121,14 @@ void DHooks::SDK_OnAllLoaded()
 	SM_GET_LATE_IFACE(BINTOOLS, g_pBinTools);
 	SM_GET_LATE_IFACE(SDKHOOKS, g_pSDKHooks);
 
+	sharesys->RequestInterface(
+		SMINTERFACE_BMS_CLIENT_ENTITY_MANAGER_NAME,
+		SMINTERFACE_BMS_CLIENT_ENTITY_MANAGER_VERSION,
+		myself,
+		reinterpret_cast<SMInterface **>(&g_pBmsClientEntityManager));
+	if (g_pBmsClientEntityManager)
+		g_pBmsClientEntityManager->AddClientEntityListener(g_pEntityListener);
+
 	if (g_pSDKHooks)
 	{
 		g_pSDKHooks->AddEntityListener(g_pEntityListener);
@@ -132,6 +142,10 @@ void DHooks::SDK_OnUnload()
 	CleanupDetours();
 	if(g_pEntityListener)
 	{
+		if(g_pBmsClientEntityManager)
+		{
+			g_pBmsClientEntityManager->RemoveClientEntityListener(g_pEntityListener);
+		}
 		g_pEntityListener->CleanupListeners();
 		g_pEntityListener->CleanupRemoveList();
 		if (g_pSDKHooks)
@@ -139,7 +153,9 @@ void DHooks::SDK_OnUnload()
 			g_pSDKHooks->RemoveEntityListener(g_pEntityListener);
 		}
 		delete g_pEntityListener;
+		g_pEntityListener = NULL;
 	}
+	g_pBmsClientEntityManager = NULL;
 	plsys->RemovePluginsListener(this);
 
 	handlesys->RemoveType(g_HookSetupHandle, myself->GetIdentity());
@@ -176,9 +192,21 @@ bool DHooks::QueryRunning(char *error, size_t maxlength)
 	SM_CHECK_IFACE(SDKHOOKS, g_pSDKHooks);
 	return true;
 }
+bool DHooks::QueryInterfaceDrop(SMInterface *pInterface)
+{
+	if (pInterface == g_pBmsClientEntityManager)
+		return false;
+
+	return IExtensionInterface::QueryInterfaceDrop(pInterface);
+}
+
 void DHooks::NotifyInterfaceDrop(SMInterface *pInterface)
 {
-	if(strcmp(pInterface->GetInterfaceName(), SMINTERFACE_SDKHOOKS_NAME) == 0)
+	if (pInterface == g_pBmsClientEntityManager)
+	{
+		g_pBmsClientEntityManager = NULL;
+	}
+	else if(strcmp(pInterface->GetInterfaceName(), SMINTERFACE_SDKHOOKS_NAME) == 0)
 	{
 		if(g_pEntityListener)
 		{

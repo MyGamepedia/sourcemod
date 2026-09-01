@@ -553,6 +553,7 @@ HookReturnStruct *CDynamicHooksSourcePawn::GetReturnStruct()
 	// Create buffers to store the return value of the function.
 	HookReturnStruct *res = new HookReturnStruct();
 	res->isChanged = false;
+	res->hookType = this->hookType;
 	res->type = this->returnType;
 	res->orgResult = NULL;
 	res->newResult = NULL;

@@ -54,6 +54,7 @@ public:
 	std::string signature;
 	std::string address;
 	std::string offset;
+	int thisOffset = 0;
 	std::vector<ArgumentInfo> args;
 	CallingConvention callConv;
 	HookType hookType;

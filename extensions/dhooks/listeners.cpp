@@ -35,6 +35,7 @@
 using namespace SourceHook;
 
 std::vector<EntityListener> g_EntityListeners;
+std::vector<EntityListener> g_ClientEntityListeners;
 std::vector<DHooksManager *>g_pRemoveList;
 
 void FrameCleanupHooks(void *data)
@@ -67,6 +68,13 @@ void DHooksEntityListener::CleanupListeners(IPluginContext *pContext)
 		if(pContext == NULL || pContext == g_EntityListeners.at(i).callback->GetParentRuntime()->GetDefaultContext())
 		{
 			g_EntityListeners.erase(g_EntityListeners.begin() + i);
+		}
+	}
+	for(int i = g_ClientEntityListeners.size() - 1; i >= 0; i--)
+	{
+		if(pContext == NULL || pContext == g_ClientEntityListeners.at(i).callback->GetParentRuntime()->GetDefaultContext())
+		{
+			g_ClientEntityListeners.erase(g_ClientEntityListeners.begin() + i);
 		}
 	}
 	for (int i = g_pRemoveList.size() -1; i >= 0; i--)
@@ -138,6 +146,53 @@ void DHooksEntityListener::OnEntityDestroyed(CBaseEntity *pEntity)
 		}
 	}
 }
+void DHooksEntityListener::OnClientEntityCreated(void *entity, int clientRef, const char *classname)
+{
+	(void)entity;
+	for(int i = static_cast<int>(g_ClientEntityListeners.size()) - 1; i >= 0; i--)
+	{
+		EntityListener listener = g_ClientEntityListeners.at(i);
+		if(listener.type == ListenType_Created)
+		{
+			IPluginFunction *callback = listener.callback;
+			callback->PushCell(clientRef);
+			callback->PushString(classname ? classname : "");
+			callback->Execute(NULL);
+		}
+	}
+}
+
+void DHooksEntityListener::OnClientEntityDestroyed(void *entity, int clientRef)
+{
+	for(int i = static_cast<int>(g_ClientEntityListeners.size()) - 1; i >= 0; i--)
+	{
+		EntityListener listener = g_ClientEntityListeners.at(i);
+		if(listener.type == ListenType_Deleted)
+		{
+			IPluginFunction *callback = listener.callback;
+			callback->PushCell(clientRef);
+			callback->Execute(NULL);
+		}
+	}
+
+	for(int i = static_cast<int>(g_pHooks.size()) - 1; i >= 0; i--)
+	{
+		DHooksManager *manager = g_pHooks.at(i);
+		if(manager->callback->hookType == HookType_EntityClient &&
+			manager->addr == reinterpret_cast<intptr_t>(entity))
+		{
+			manager->callback->active = false;
+			if(g_pRemoveList.empty())
+			{
+				smutils->AddFrameAction(&FrameCleanupHooks, NULL);
+			}
+
+			g_pRemoveList.push_back(manager);
+			g_pHooks.erase(g_pHooks.begin() + i);
+		}
+	}
+}
+
 bool DHooksEntityListener::AddPluginEntityListener(ListenType type, IPluginFunction *callback)
 {
 	for(int i = g_EntityListeners.size() -1; i >= 0; i--)
@@ -162,6 +217,37 @@ bool DHooksEntityListener::RemovePluginEntityListener(ListenType type, IPluginFu
 		if(listerner.callback == callback && listerner.type == type)
 		{
 			g_EntityListeners.erase(g_EntityListeners.begin() + i);
+			return true;
+		}
+	}
+	return false;
+}
+bool DHooksEntityListener::AddPluginClientEntityListener(ListenType type, IPluginFunction *callback)
+{
+	for(int i = static_cast<int>(g_ClientEntityListeners.size()) - 1; i >= 0; i--)
+	{
+		EntityListener listener = g_ClientEntityListeners.at(i);
+		if(listener.callback == callback && listener.type == type)
+		{
+			return true;
+		}
+	}
+
+	EntityListener listener;
+	listener.callback = callback;
+	listener.type = type;
+	g_ClientEntityListeners.push_back(listener);
+	return true;
+}
+
+bool DHooksEntityListener::RemovePluginClientEntityListener(ListenType type, IPluginFunction *callback)
+{
+	for(int i = static_cast<int>(g_ClientEntityListeners.size()) - 1; i >= 0; i--)
+	{
+		EntityListener listener = g_ClientEntityListeners.at(i);
+		if(listener.callback == callback && listener.type == type)
+		{
+			g_ClientEntityListeners.erase(g_ClientEntityListeners.begin() + i);
 			return true;
 		}
 	}
