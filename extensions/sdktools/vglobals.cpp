@@ -131,8 +131,9 @@ static ServerClass *UTIL_FindServerClass(const char *classname)
 void UpdateValveGlobals()
 {
 	s_pGameRules = nullptr;
-	
-	bool bShouldLoadMultiplayer = (gpGlobals && gpGlobals->maxClients > 1); //load sp proxy/table if wanted
+
+	//load sp proxy/table if wanted
+	bool bShouldLoadMultiplayer = (iserver && iserver->GetMaxClients() > 1 && engine->IsDedicatedServer());
 
 	const char *pszNetClass = 	bShouldLoadMultiplayer ? 
 								g_pGameConf->GetKeyValue("GameRulesProxy") : 
@@ -141,7 +142,7 @@ void UpdateValveGlobals()
 	const char *pszDTName = 	bShouldLoadMultiplayer ? 
 								g_pGameConf->GetKeyValue("GameRulesDataTable") : 
 								g_pGameConf->GetKeyValue("GameRulesDataTableSP");
-							
+								
 	if (pszNetClass && pszDTName)
 	{
 		sm_sendprop_info_t info;
@@ -368,6 +369,12 @@ const char *GetDTTypeName(int type)
 		{
 			return "vector";
 		}
+#if SOURCE_ENGINE >= SE_EYE
+	case DPT_VectorXY:
+		{
+			return "vectorxy";
+		}
+#endif
 	case DPT_String:
 		{
 			return "string";
