@@ -38,6 +38,7 @@
 #include "frame_hooks.h"
 #include "logic_bridge.h"
 #include "compat_wrappers.h"
+#include "PlayerManager.h"
 #include <sourcemod_version.h>
 #include <amtl/os/am-path.h>
 #include <amtl/os/am-fsutil.h>
@@ -64,8 +65,29 @@ bool g_bGotServerStart = false;
 bool g_bGotTrigger = false;
 ConCommand *g_pExecPtr = NULL;
 ConVar *g_ServerCfgFile = NULL;
+const char *g_ServerCfgFileName = NULL;
+bool g_bFinalizeConfigsImmediately = false;
+static std::string *g_ConfigCommandBuffer = NULL;
 
 void CheckAndFinalizeConfigs();
+
+#if SOURCE_ENGINE >= SE_ORANGEBOX
+void Hook_ExecDispatchPre(const CCommand &cmd);
+void Hook_ExecDispatchPost(const CCommand &cmd);
+#else
+void Hook_ExecDispatchPre();
+void Hook_ExecDispatchPost();
+#endif
+
+static const char *GetServerCfgFileName()
+{
+	if (g_ServerCfgFileName != NULL)
+	{
+		return g_ServerCfgFileName;
+	}
+
+	return g_ServerCfgFile != NULL ? g_ServerCfgFile->GetString() : NULL;
+}
 
 #if SOURCE_ENGINE >= SE_ORANGEBOX
 SH_DECL_EXTERN1_void(ConCommand, Dispatch, SH_NOATTRIB, false, const CCommand &);
@@ -80,8 +102,9 @@ void Hook_ExecDispatchPre()
 #endif
 
 	const char *arg = cmd.Arg(1);
+	const char *target = GetServerCfgFileName();
 
-	if (!g_bServerExecd && arg != NULL && strcmp(arg, g_ServerCfgFile->GetString()) == 0)
+	if (!g_bServerExecd && arg != NULL && target != NULL && strcasecmp(arg, target) == 0)
 	{
 		g_bGotTrigger = true;
 	}
@@ -101,11 +124,34 @@ void Hook_ExecDispatchPost()
 	}
 }
 
+static void InstallExecHook()
+{
+	if (g_pExecPtr != NULL)
+	{
+		return;
+	}
+
+	g_pExecPtr = FindCommand("exec");
+	if (g_pExecPtr != NULL)
+	{
+		SH_ADD_HOOK(ConCommand, Dispatch, g_pExecPtr, SH_STATIC(Hook_ExecDispatchPre), false);
+		SH_ADD_HOOK(ConCommand, Dispatch, g_pExecPtr, SH_STATIC(Hook_ExecDispatchPost), true);
+	}
+}
+
 void CheckAndFinalizeConfigs()
 {
-	if ((g_bServerExecd || g_ServerCfgFile == NULL) && g_bGotServerStart)
+	if ((g_bServerExecd || GetServerCfgFileName() == NULL) && g_bGotServerStart)
 	{
-        g_PendingInternalPush = true;
+		if (g_bFinalizeConfigsImmediately)
+		{
+			g_bFinalizeConfigsImmediately = false;
+			SM_InternalCmdTrigger();
+		}
+		else
+		{
+			g_PendingInternalPush = true;
+		}
 	}
 }
 
@@ -138,43 +184,81 @@ void CoreConfig::OnSourceModShutdown()
 		SH_REMOVE_HOOK(ConCommand, Dispatch, g_pExecPtr, SH_STATIC(Hook_ExecDispatchPost), true);
 		g_pExecPtr = NULL;
 	}
+
+	g_ServerCfgFile = NULL;
+	g_ServerCfgFileName = NULL;
+	g_bFinalizeConfigsImmediately = false;
+	g_ConfigCommandBuffer = NULL;
 }
 
 void CoreConfig::OnSourceModLevelChange(const char *mapName)
 {
-	static bool already_checked = false;
-
-	if (!already_checked)
+#if SOURCE_ENGINE == SE_BMS
+	/* Single-player configs belong to the process startup, not each map. */
+	if (!g_bIsDedicatedServer && g_Players.MaxClients() == 1)
 	{
-		if (engine->IsDedicatedServer())
-		{
-			g_ServerCfgFile = icvar->FindVar("servercfgfile");
-		}
-		else
-		{
-			g_ServerCfgFile = icvar->FindVar("lservercfgfile");
-		}
+		return;
+	}
+#endif
 
-		if (g_ServerCfgFile != NULL)
+	if (g_bIsDedicatedServer)
+	{
+		g_ServerCfgFile = icvar->FindVar("servercfgfile");
+	}
+	else
+	{
+		g_ServerCfgFile = icvar->FindVar("lservercfgfile");
+	}
+	g_ServerCfgFileName = NULL;
+	g_bFinalizeConfigsImmediately = false;
+
+	if (g_ServerCfgFile != NULL)
+	{
+		InstallExecHook();
+		if (g_pExecPtr == NULL)
 		{
-			g_pExecPtr = FindCommand("exec");
-			if (g_pExecPtr != NULL)
-			{
-				SH_ADD_HOOK(ConCommand, Dispatch, g_pExecPtr, SH_STATIC(Hook_ExecDispatchPre), false);
-				SH_ADD_HOOK(ConCommand, Dispatch, g_pExecPtr, SH_STATIC(Hook_ExecDispatchPost), true);
-			}
-			else
-			{
-				g_ServerCfgFile = NULL;
-			}
+			g_ServerCfgFile = NULL;
 		}
-		already_checked = true;
 	}
 
 	g_bConfigsExecd = false;
 	g_bServerExecd = false;
 	g_bGotServerStart = false;
 	g_bGotTrigger = false;
+}
+
+void CoreConfig::OnSourceModEngineReady(bool beforeValveRc)
+{
+#if SOURCE_ENGINE == SE_BMS
+	if (g_bIsDedicatedServer || g_Players.MaxClients() != 1 || g_bGotServerStart)
+	{
+		return;
+	}
+
+	g_bConfigsExecd = false;
+	g_bServerExecd = false;
+	g_bGotServerStart = false;
+	g_bGotTrigger = false;
+	g_ServerCfgFile = NULL;
+	g_ServerCfgFileName = beforeValveRc ? "valve.rc" : NULL;
+	g_bFinalizeConfigsImmediately = beforeValveRc;
+
+	if (beforeValveRc)
+	{
+		InstallExecHook();
+		if (g_pExecPtr == NULL)
+		{
+			logger->LogError("[SM] Could not hook exec for the valve.rc startup barrier; "
+			                 "falling back to frame-based config completion.");
+			g_ServerCfgFileName = NULL;
+			g_bFinalizeConfigsImmediately = false;
+		}
+	}
+
+	SM_ExecuteAllConfigs(beforeValveRc);
+#else
+	(void)beforeValveRc;
+#endif
 }
 
 void CoreConfig::OnRootConsoleCommand(const char *cmdname, const ICommandArgs *command)
@@ -470,6 +554,14 @@ bool SM_ConfigCheckRegeneration(
 
 inline void SM_ExecuteConfigFile(const char *file)
 {
+	if (g_ConfigCommandBuffer != NULL)
+	{
+		g_ConfigCommandBuffer->append("exec ");
+		g_ConfigCommandBuffer->append(file);
+		g_ConfigCommandBuffer->append("\n");
+		return;
+	}
+
 	char cmd[255];
 	ke::SafeSprintf(cmd, sizeof(cmd), "exec %s\n", file);
 	engine->ServerCommand(cmd);
@@ -784,14 +876,20 @@ void SM_ExecuteForPlugin(IPluginContext *ctx)
 	}
 }
 
-void SM_ExecuteAllConfigs()
+void SM_ExecuteAllConfigs(bool insert)
 {
 	if (g_bGotServerStart)
 	{
 		return;
 	}
 
-	engine->ServerCommand("exec sourcemod/sourcemod.cfg\n");
+	std::string commandBuffer;
+	if (insert)
+	{
+		g_ConfigCommandBuffer = &commandBuffer;
+	}
+
+	SM_ExecuteConfigFile("sourcemod/sourcemod.cfg");
 
 	AutoPluginList plugins(scripts);
 	for (size_t i = 0; i < plugins->size(); i++)
@@ -802,6 +900,25 @@ void SM_ExecuteAllConfigs()
 		for (unsigned int i=0; i<num; i++)
 		{
 			can_create = SM_ExecuteConfig(plugin, plugin->GetConfig(i), can_create);
+		}
+	}
+
+	if (insert)
+	{
+		g_ConfigCommandBuffer = NULL;
+		if (!commandBuffer.empty())
+		{
+			/*
+			 * Black Mesa dispatches valve.rc directly after PostInit rather
+			 * than through this server command buffer. Drain the inserted
+			 * SourceMod/plugin block now so it completes before valve.rc.
+			 */
+			 
+			//BUGBUG: This doesn't run BEFORE valve.rc runs
+			//a user can edit the .cfg files, so we are kinda fine
+			//don't fix it for now at least
+			engine->InsertServerCommand(commandBuffer.c_str());
+			engine->ServerExecute();
 		}
 	}
 

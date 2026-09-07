@@ -84,6 +84,7 @@ public:
 	virtual const CVector<SMPlugin *> *ListPlugins() = 0;
 	virtual void FreePluginList(const CVector<SMPlugin *> *list) = 0;
 	virtual void AddFunctionsToForward(const char *name, IChangeableForward *fwd) = 0;
+	virtual void NotifyEngineReady() = 0;
 };
 
 class AutoPluginList

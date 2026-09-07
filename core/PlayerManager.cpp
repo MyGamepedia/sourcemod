@@ -215,7 +215,7 @@ void PlayerManager::OnSourceModAllInitialized()
 	ServerEnterHibernation = forwardsys->CreateForward("OnServerEnterHibernation", ET_Ignore, 0, NULL);
 	ServerExitHibernation = forwardsys->CreateForward("OnServerExitHibernation", ET_Ignore, 0, NULL);
 
-	m_bIsListenServer = !engine->IsDedicatedServer();
+	m_bIsListenServer = !g_bIsDedicatedServer;
 	m_ListenClient = 0;
 
 	ConCommand *pCmd = FindCommand("maxplayers");
@@ -1926,7 +1926,11 @@ void PlayerManager::MaxPlayersChanged( int newvalue /*= -1*/ )
 {
 	if (newvalue == -1)
 	{
+#if SOURCE_ENGINE == SE_BMS
+		newvalue = g_pIServer != NULL ? g_pIServer->GetMaxClients() : gpGlobals->maxClients;
+#else
 		newvalue = gpGlobals->maxClients;
+#endif
 	}
 
 	if (newvalue == MaxClients())

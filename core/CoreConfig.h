@@ -62,6 +62,7 @@ public:
 	 */
 	void Initialize();
 	const char *GetCoreConfigValue(const char *key);
+	void OnSourceModEngineReady(bool beforeValveRc);
 private:
 	/**
 	 * Sets configuration option by notifying SourceMod components that rely on core.cfg
@@ -85,7 +86,7 @@ struct StringPolicy
 };
 
 extern bool SM_AreConfigsExecuted();
-extern void SM_ExecuteAllConfigs();
+extern void SM_ExecuteAllConfigs(bool insert = false);
 extern void SM_ExecuteForPlugin(IPluginContext *ctx);
 extern void SM_ConfigsExecuted_Global();
 extern void SM_ConfigsExecuted_Plugin(unsigned int serial);

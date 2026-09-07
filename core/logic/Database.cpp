@@ -75,6 +75,18 @@ void DBManager::OnSourceModAllInitialized()
 
 	g_pSM->BuildPath(Path_SM, m_Filename, sizeof(m_Filename), "configs/databases.cfg");
 	m_Builder.SetPath(m_Filename);
+
+	/*
+	 * Black Mesa non-dedicated extensions are loaded at EngineVGui::PostInit,
+	 * before the first level-change notification. Make database profiles
+	 * available to early consumers such as clientprefs.
+	 */
+#if SOURCE_ENGINE == SE_BMS
+	if (!g_bIsDedicatedServer)
+	{
+		m_Builder.StartParse();
+	}
+#endif
 	
 	g_PluginSys.AddPluginsListener(this);
 

@@ -20,6 +20,12 @@
 		
 		"Offsets"
 		{
+			"EngineVGui::PostInit"
+			{
+				"windows"	"12"
+				"linux"		"13"
+			}
+
 			"EntInfo"
 			{
 				"windows"	"4"	

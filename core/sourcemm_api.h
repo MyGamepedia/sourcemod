@@ -72,6 +72,10 @@ public:
 
 extern SourceMod_Core g_SourceMod_Core;
 extern IVEngineServer *engine;
+extern bool g_bIsDedicatedServer;
+#if SOURCE_ENGINE == SE_BMS
+extern IServer *g_pIServer;
+#endif
 extern IServerGameDLL *gamedll;
 extern IServerGameClients *serverClients;
 extern ICvar *icvar;

@@ -67,6 +67,7 @@ CPlugin::CPlugin(const char *file)
    m_pContext(nullptr),
    m_MaxClientsVar(nullptr),
    m_bGotAllLoaded(false),
+   m_bGotEngineReady(false),
    m_FileVersion(0),
    m_ident(nullptr),
    m_LastFileModTime(0),
@@ -158,6 +159,7 @@ void CPlugin::FinishEviction()
 	m_configs.clear();
 	m_Libraries.clear();
 	m_bGotAllLoaded = false;
+	m_bGotEngineReady = false;
 	m_FileVersion = 0;
 }
 
@@ -412,6 +414,11 @@ void CPlugin::Call_OnAllPluginsLoaded()
 		pFunction->Execute(&result);
 	}
 
+	if (bridge->IsEngineReady())
+	{
+		Call_OnSourceModEngineReady();
+	}
+
 	if (bridge->IsMapRunning())
 	{
 		if ((pFunction = m_pRuntime->GetFunctionByName("OnMapStart")) != NULL)
@@ -423,6 +430,23 @@ void CPlugin::Call_OnAllPluginsLoaded()
 	if (bridge->AreConfigsExecuted())
 	{
 		bridge->ExecuteConfigs(GetBaseContext());
+	}
+}
+
+void CPlugin::Call_OnSourceModEngineReady()
+{
+	if (m_status > Plugin_Paused || m_bGotEngineReady)
+	{
+		return;
+	}
+
+	m_bGotEngineReady = true;
+
+	cell_t result;
+	IPluginFunction *pFunction = m_pRuntime->GetFunctionByName("OnSourceModEngineReady");
+	if (pFunction != NULL)
+	{
+		pFunction->Execute(&result);
 	}
 }
 
@@ -1563,7 +1587,8 @@ IPluginIterator *CPluginManager::GetPluginIterator()
 
 bool CPluginManager::IsLateLoadTime() const
 {
-	return (m_AllPluginsLoaded || !bridge->IsMapLoading());
+	return (m_AllPluginsLoaded
+		|| (!bridge->IsMapLoading() && !bridge->IsInitialPluginLoad()));
 }
 
 void CPluginManager::OnSourceModAllInitialized()
@@ -2206,6 +2231,12 @@ void CPluginManager::AllPluginsLoaded()
 {
 	for (PluginIter iter(m_plugins); !iter.done(); iter.next())
 		(*iter)->Call_OnAllPluginsLoaded();
+}
+
+void CPluginManager::NotifyEngineReady()
+{
+	for (PluginIter iter(m_plugins); !iter.done(); iter.next())
+		(*iter)->Call_OnSourceModEngineReady();
 }
 
 void CPluginManager::UnloadAll()

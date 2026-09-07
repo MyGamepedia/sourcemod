@@ -42,6 +42,10 @@
 
 SourceMod_Core g_SourceMod_Core;
 IVEngineServer *engine = NULL;
+bool g_bIsDedicatedServer = false;
+#if SOURCE_ENGINE == SE_BMS
+IServer *g_pIServer = NULL;
+#endif
 IServerGameDLL *gamedll = NULL;
 IServerGameClients *serverClients = NULL;
 ISmmPluginManager *g_pMMPlugins = NULL;
@@ -91,6 +95,10 @@ bool SourceMod_Core::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen
 	}
 #else
 	GET_V_IFACE_CURRENT(GetEngineFactory, engine, IVEngineServer, INTERFACEVERSION_VENGINESERVER);
+#endif
+	g_bIsDedicatedServer = engine->IsDedicatedServer();
+#if SOURCE_ENGINE == SE_BMS
+	g_pIServer = engine->GetIServer();
 #endif
 	GET_V_IFACE_CURRENT(GetServerFactory, serverClients, IServerGameClients, INTERFACEVERSION_SERVERGAMECLIENTS);
 	GET_V_IFACE_CURRENT(GetEngineFactory, icvar, ICvar, CVAR_INTERFACE_VERSION);

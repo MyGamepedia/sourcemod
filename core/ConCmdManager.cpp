@@ -230,10 +230,10 @@ bool ConCmdManager::InternalDispatch(int client, const ICommandArgs *args)
 	// On a listen server, sometimes the server host's client index can be set
 	// as 0. So index 1 is passed to the command callback to correct this
 	// potential problem.
-	int realClient = (!engine->IsDedicatedServer() && client == 0)
+	int realClient = (!g_bIsDedicatedServer && client == 0)
 	                 ? g_Players.ListenClient()
 	                 : client;
-	int dedicatedClient = engine->IsDedicatedServer() ? 0 : g_Players.ListenClient();
+	int dedicatedClient = g_bIsDedicatedServer ? 0 : g_Players.ListenClient();
 
 	for (CmdHookList::iterator iter = pInfo->hooks.begin(); iter != pInfo->hooks.end(); iter++)
 	{

@@ -54,6 +54,8 @@ public:
 	const char *GetSourceEngineName() override;
 	bool SymbolsAreHidden() override;
 	bool IsMapLoading() override;
+	bool IsInitialPluginLoad() override;
+	bool IsEngineReady() override;
 	bool IsMapRunning() override;
 	int MaxClients() override;
 	bool DescribePlayer(int entRef, const char **namep, const char **authp, int *useridp) override;

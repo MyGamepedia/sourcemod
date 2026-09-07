@@ -162,6 +162,7 @@ public:
 
 	void Call_OnPluginEnd();
 	void Call_OnAllPluginsLoaded();
+	void Call_OnSourceModEngineReady();
 	void Call_OnLibraryAdded(const char *lib);
 
 	// Returns true if a plugin is usable.
@@ -277,6 +278,7 @@ private:
 	CVector<AutoConfig *> m_configs;
 	List<String> m_Libraries;
 	bool m_bGotAllLoaded;
+	bool m_bGotEngineReady;
 	int m_FileVersion;
 
 	// Information that survives past eviction.
@@ -404,6 +406,7 @@ public:
 	 * plugins to the specified forward if the names match.
 	 */
 	void AddFunctionsToForward(const char *name, IChangeableForward *pForward);
+	void NotifyEngineReady();
 
 	/**
 	 * Iterates through plugins to call OnAllPluginsLoaded.

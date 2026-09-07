@@ -71,7 +71,7 @@ class VEngineServer_Logic : public IVEngineServerBridge
 public:
 	virtual bool IsDedicatedServer()
 	{
-		return engine->IsDedicatedServer();
+		return g_bIsDedicatedServer;
 	}
 	virtual void InsertServerCommand(const char *cmd)
 	{
@@ -582,6 +582,16 @@ void CoreProviderImpl::ConsolePrintVa(const char *message, va_list ap)
 bool CoreProviderImpl::IsMapLoading()
 {
 	return g_SourceMod.IsMapLoading();
+}
+
+bool CoreProviderImpl::IsInitialPluginLoad()
+{
+	return g_SourceMod.IsInitialPluginLoad();
+}
+
+bool CoreProviderImpl::IsEngineReady()
+{
+	return g_SourceMod.IsEngineReady();
 }
 
 bool CoreProviderImpl::IsMapRunning()

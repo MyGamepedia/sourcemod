@@ -90,6 +90,8 @@ public:
 	 * @brief Returns whether or not a map load is in progress
 	 */
 	bool IsMapLoading() const;
+	bool IsInitialPluginLoad() const;
+	bool IsEngineReady() const;
 
 	/** 
 	 * @brief Stores the global target index.
@@ -137,12 +139,22 @@ public: // ISourceMod
 	bool IsMapRunning();
 private:
 	void ShutdownServices();
+	void LoadInitialPlugins();
+#if SOURCE_ENGINE == SE_BMS
+	void InitializeEngineVGuiHook();
+	void EngineVGuiPostInit_Post();
+	void BootstrapNonDedicated(bool beforeValveRc);
+#endif
 private:
 	const char* GetMapEntitiesString();
 	char m_SMBaseDir[PLATFORM_MAX_PATH];
 	char m_SMRelDir[PLATFORM_MAX_PATH];
 	char m_ModDir[32];
 	bool m_IsMapLoading;
+	bool m_IsInitialPluginLoad;
+	bool m_DidInitialPluginLoad;
+	bool m_EngineReady;
+	bool m_EngineVGuiHooked;
 	bool m_ExecPluginReload;
 	bool m_ExecOnMapEnd;
 	unsigned int m_target;

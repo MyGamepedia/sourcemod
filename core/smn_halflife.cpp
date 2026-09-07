@@ -92,7 +92,7 @@ static cell_t GetMapDisplayName(IPluginContext *pContext, const cell_t *params)
 
 static cell_t IsDedicatedServer(IPluginContext *pContext, const cell_t *params)
 {
-	return engine->IsDedicatedServer();
+	return g_bIsDedicatedServer;
 }
 
 static cell_t GetEngineTime(IPluginContext *pContext, const cell_t *params)

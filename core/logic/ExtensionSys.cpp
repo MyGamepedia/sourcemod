@@ -300,8 +300,10 @@ bool CExtension::PerformAPICheck(char *error, size_t maxlength)
 
 bool CExtension::Load(char *error, size_t maxlength)
 {
+	bool initial_load = bridge->IsMapLoading() || bridge->IsInitialPluginLoad();
+
 	CreateIdentity();
-	if (!m_pAPI->OnExtensionLoad(this, &g_ShareSys, error, maxlength, !bridge->IsMapLoading()))
+	if (!m_pAPI->OnExtensionLoad(this, &g_ShareSys, error, maxlength, !initial_load))
 	{
 		g_ShareSys.RemoveInterfaces(this);
 		DestroyIdentity();
@@ -309,7 +311,7 @@ bool CExtension::Load(char *error, size_t maxlength)
 	}
 
 	/* Check if we're past load time */
-	if (!bridge->IsMapLoading())
+	if (!initial_load)
 	{
 		MarkAllLoaded();
 	}

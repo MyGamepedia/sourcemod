@@ -100,6 +100,8 @@ public:
 
 	// Game state and helper functions.
 	virtual bool IsMapLoading() = 0;
+	virtual bool IsInitialPluginLoad() = 0;
+	virtual bool IsEngineReady() = 0;
 	virtual bool IsMapRunning() = 0;
 	virtual int MaxClients() = 0;
 	virtual bool DescribePlayer(int entRef, const char **namep, const char **authp, int *useridp) = 0;

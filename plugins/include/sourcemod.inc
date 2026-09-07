@@ -141,6 +141,21 @@ methodmap GameData < Handle
 forward void OnPluginStart();
 
 /**
+ * Called when the engine, client, GameUI, rendering systems, and the
+ * process-level SourceMod sandbox are ready.
+ *
+ * A map, game rules, and game entities are not guaranteed to exist yet.
+ * Startup configuration files have not necessarily finished executing;
+ * use OnConfigsExecuted() when final ConVar values are required.
+ *
+ * This is called once in the lifetime of a plugin. A plugin loaded after
+ * the engine-ready transition receives it after OnAllPluginsLoaded().
+ *
+ * @note Currently this is fired for Black Mesa non-dedicated startup.
+ */
+forward void OnSourceModEngineReady();
+
+/**
  * @deprecated Use AskPluginLoad2() instead.
  * If a plugin contains both AskPluginLoad() and AskPluginLoad2(), the former will
  * not be called, but old plugins with only AskPluginLoad() will work.
@@ -210,27 +225,27 @@ forward void OnMapStart();
 forward void OnMapEnd();
 
 /**
- * Called when the map has loaded, servercfgfile (server.cfg) has been
- * executed, and all plugin configs are done executing.  This is the best
- * place to initialize plugin functions which are based on cvar data.
+ * Called after the applicable server/startup config chain and all plugin
+ * configs have finished executing. This is the best place to initialize
+ * plugin functions which are based on final cvar data.
  *
- * @note This will always be called once and only once per map, after
- *       OnMapStart(). On late load it will be called again.
+ * @note Dedicated and listen servers call this once per map, after
+ *       OnMapStart(). Black Mesa single-player calls it once for the
+ *       process startup config chain and it may precede the first map.
+ *       On late load it will be called again for that plugin.
  */
 forward void OnConfigsExecuted();
 
 /**
- * This is called once, right after OnMapStart() but any time before
- * OnConfigsExecuted().  It is called after the "exec sourcemod.cfg"
- * command and all AutoExecConfig() exec commands have been added to
- * the ServerCommand() buffer.
+ * Called once after SourceMod's automatic config commands have been
+ * buffered and before OnConfigsExecuted().
  *
- * If you need to load per-map settings that override default values,
- * adding commands to the ServerCommand() buffer here will guarantee
- * that they're set before OnConfigsExecuted().
+ * Dedicated and listen servers call this after OnMapStart(). Black Mesa
+ * single-player calls it during process startup and it may precede the
+ * first map. Commands buffered there run after the valve.rc startup chain
+ * and before OnConfigsExecuted().
  *
- * Unlike OnMapStart() and OnConfigsExecuted(), this is not called on
- * late loads that occur after OnMapStart().
+ * This is not called for late loads after the applicable config phase.
  */
 forward void OnAutoConfigsBuffered();
 
