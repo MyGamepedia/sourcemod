@@ -40,6 +40,7 @@
 #include <IThreader.h>
 #include <bridge/include/ILogger.h>
 #include <bridge/include/CoreProvider.h>
+#include <bridge/include/IVEngineServerBridge.h>
 
 using namespace std::chrono_literals;
 
@@ -82,7 +83,7 @@ void DBManager::OnSourceModAllInitialized()
 	 * available to early consumers such as clientprefs.
 	 */
 #if SOURCE_ENGINE == SE_BMS
-	if (!g_bIsDedicatedServer)
+	if (!engine->IsDedicatedServer())
 	{
 		m_Builder.StartParse();
 	}
