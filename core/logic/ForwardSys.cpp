@@ -329,10 +329,10 @@ int CForward::Execute(const sp::CallArgs& in_args, cell_t *result, IForwardFilte
 			default:
 				break;
 		}
-	}
 
-	if (result)
-		*result = cur_result;
+		if (result)
+			*result = cur_result;
+	}
 
 	return SP_ERROR_NONE;
 }
