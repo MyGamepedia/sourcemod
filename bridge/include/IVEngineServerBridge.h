@@ -27,6 +27,8 @@
 #ifndef _INCLUDE_SOURCEMOD_BRIDGE_IVENGINESERVER_H_
 #define _INCLUDE_SOURCEMOD_BRIDGE_IVENGINESERVER_H_
 
+#include <stdint.h>
+
 struct edict_t;
 
 namespace SourceMod {
@@ -41,6 +43,7 @@ public:
 	virtual const char *GetClientConVarValue(int clientIndex, const char *name) = 0;
 	virtual void ClientCommand(edict_t *pEdict, const char *szCommand) = 0;
 	virtual void FakeClientCommand(edict_t *pEdict, const char *szCommand) = 0;
+	virtual uint32_t GetAppID() = 0;
 };
 
 } // namespace SourceMod

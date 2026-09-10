@@ -28,9 +28,13 @@
  */
 
 #include "common_logic.h"
+#include <errno.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sstream>
+#include <unordered_set>
+#include <vector>
 #include <sh_list.h>
 #include <sh_string.h>
 #include "GameConfigs.h"
@@ -48,6 +52,7 @@
 #include <bridge/include/ILogger.h>
 #include <bridge/include/CoreProvider.h>
 #include <bridge/include/IFileSystemBridge.h>
+#include <bridge/include/IVEngineServerBridge.h>
 
 #if defined PLATFORM_POSIX
 #include <dlfcn.h>
@@ -60,7 +65,17 @@ IGameConfig *g_pGameConf = NULL;
 static char g_Game[256];
 static char g_GameDesc[256] = {'!', '\0'};
 static char g_GameName[256] = {'$', '\0'};
+static char g_SteamGame[256];
 static const char *g_pParseEngine = NULL;
+
+enum GameMatchMode
+{
+	GameMatch_Direct,
+	GameMatch_Generic,
+	GameMatch_SteamBase
+};
+
+static GameMatchMode g_GameMatchMode = GameMatch_Direct;
 
 #define PSTATE_NONE						0
 #define PSTATE_GAMES					1
@@ -106,7 +121,7 @@ struct TempSigInfo
 	char library[64];
 } s_TempSig;
 
-static bool DoesGameMatch(const char *value)
+static bool DoesDirectGameMatch(const char *value)
 {
 #if defined PLATFORM_WINDOWS
 	if (strcasecmp(value, g_Game) == 0 ||
@@ -121,9 +136,235 @@ static bool DoesGameMatch(const char *value)
 	return false;
 }
 
+static bool DoesSteamGameMatch(const char *value)
+{
+	if (!g_SteamGame[0])
+		return false;
+
+#if defined PLATFORM_WINDOWS
+	return strcasecmp(value, g_SteamGame) == 0;
+#else
+	return strcmp(value, g_SteamGame) == 0;
+#endif
+}
+
+static bool HasSteamGameInheritance()
+{
+	return g_SteamGame[0] && !DoesDirectGameMatch(g_SteamGame);
+}
+
+static bool DoesGameMatch(const char *value)
+{
+	if (g_GameMatchMode == GameMatch_Generic)
+		return false;
+	if (g_GameMatchMode == GameMatch_SteamBase)
+		return DoesSteamGameMatch(value);
+
+	return DoesDirectGameMatch(value);
+}
+
+static bool DoesSupportedSectionMatch(
+	bool hadGame,
+	bool matchedGame,
+	bool hadEngine,
+	bool matchedEngine)
+{
+	if (!HasSteamGameInheritance())
+	{
+		return (!hadEngine && !hadGame) ||
+			   (!hadEngine && matchedGame) ||
+			   (!hadGame && matchedEngine) ||
+			   (matchedEngine && matchedGame);
+	}
+
+	if (g_GameMatchMode == GameMatch_Generic)
+		return !hadGame && (!hadEngine || matchedEngine);
+
+	return hadGame && matchedGame && (!hadEngine || matchedEngine);
+}
+
 static bool DoesEngineMatch(const char *value)
 {
 	return strcmp(value, g_pParseEngine) == 0;
+}
+
+struct SteamIdEntry
+{
+	std::string game;
+	uint32_t appId;
+	bool valid;
+};
+
+class SteamIdReader : public ITextListener_SMC
+{
+public:
+	void ReadSMC_ParseStart() override
+	{
+		entries.clear();
+		inSteamIds = false;
+		sawSteamIds = false;
+		ignoreLevel = 0;
+	}
+
+	SMCResult ReadSMC_NewSection(const SMCStates *states, const char *name) override
+	{
+		if (ignoreLevel)
+		{
+			ignoreLevel++;
+			return SMCResult_Continue;
+		}
+
+		if (!inSteamIds)
+		{
+			if (strcmp(name, "SteamIDs") == 0)
+			{
+				inSteamIds = true;
+				sawSteamIds = true;
+			}
+			else
+			{
+				ignoreLevel++;
+			}
+		}
+		else
+		{
+			ignoreLevel++;
+		}
+
+		return SMCResult_Continue;
+	}
+
+	SMCResult ReadSMC_KeyValue(const SMCStates *states, const char *key, const char *value) override
+	{
+		if (ignoreLevel || !inSteamIds)
+			return SMCResult_Continue;
+
+		if (!key[0] || strlen(key) >= sizeof(g_SteamGame) || !value || !value[0])
+		{
+			logger->LogError("[SM] Invalid Steam AppID entry on line %u in configs/steamids.txt; entry ignored.",
+				states->line);
+			return SMCResult_Continue;
+		}
+
+		char *end = NULL;
+		errno = 0;
+		unsigned long long appId = strtoull(value, &end, 10);
+		if (errno != 0 || end == value || *end != '\0' || appId == 0 || appId > UINT32_MAX)
+		{
+			logger->LogError("[SM] Invalid Steam AppID \"%s\" for game \"%s\" on line %u in configs/steamids.txt; entry ignored.",
+				value,
+				key,
+				states->line);
+			return SMCResult_Continue;
+		}
+
+		SteamIdEntry entry;
+		entry.game = key;
+		entry.appId = static_cast<uint32_t>(appId);
+		entry.valid = true;
+		entries.push_back(std::move(entry));
+		return SMCResult_Continue;
+	}
+
+	SMCResult ReadSMC_LeavingSection(const SMCStates *states) override
+	{
+		if (ignoreLevel)
+		{
+			ignoreLevel--;
+			return SMCResult_Continue;
+		}
+
+		if (inSteamIds)
+			inSteamIds = false;
+
+		return SMCResult_Continue;
+	}
+
+	bool Resolve(uint32_t appId, char *game, size_t maxlength)
+	{
+		std::unordered_set<std::string> duplicateGames;
+		std::unordered_set<uint32_t> duplicateAppIds;
+
+		for (size_t i = 0; i < entries.size(); i++)
+		{
+			for (size_t j = i + 1; j < entries.size(); j++)
+			{
+				if (entries[i].game == entries[j].game)
+				{
+					entries[i].valid = false;
+					entries[j].valid = false;
+					duplicateGames.insert(entries[i].game);
+				}
+				if (entries[i].appId == entries[j].appId)
+				{
+					entries[i].valid = false;
+					entries[j].valid = false;
+					duplicateAppIds.insert(entries[i].appId);
+				}
+			}
+		}
+
+		for (const auto &duplicate : duplicateGames)
+		{
+			logger->LogError("[SM] Duplicate game \"%s\" in configs/steamids.txt; AppID fallback for this game has been disabled.",
+				duplicate.c_str());
+		}
+		for (uint32_t duplicate : duplicateAppIds)
+		{
+			logger->LogError("[SM] Duplicate Steam AppID %u in configs/steamids.txt; AppID fallback for this ID has been disabled.",
+				duplicate);
+		}
+
+		for (const SteamIdEntry &entry : entries)
+		{
+			if (entry.valid && entry.appId == appId)
+			{
+				strncopy(game, entry.game.c_str(), maxlength);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool sawSteamIds;
+
+private:
+	std::vector<SteamIdEntry> entries;
+	bool inSteamIds;
+	unsigned int ignoreLevel;
+};
+
+static void LoadSteamGameIdentity()
+{
+	g_SteamGame[0] = '\0';
+
+	char path[PLATFORM_MAX_PATH];
+	g_pSM->BuildPath(Path_SM, path, sizeof(path), "configs/steamids.txt");
+	if (!libsys->PathExists(path))
+		return;
+
+	SteamIdReader reader;
+	SMCStates states = {0, 0};
+	char error[255];
+	SMCError err = textparsers->ParseSMCFile(path, &reader, &states, error, sizeof(error));
+	if (err != SMCError_Okay)
+	{
+		const char *message = textparsers->GetSMCErrorString(err);
+		logger->LogError("[SM] Error parsing configs/steamids.txt on line %u, col %u: %s",
+			states.line,
+			states.col,
+			message ? message : "Unknown error");
+		return;
+	}
+
+	if (!reader.sawSteamIds)
+	{
+		logger->LogError("[SM] Missing \"SteamIDs\" section in configs/steamids.txt; Steam AppID fallback disabled.");
+		return;
+	}
+
+	reader.Resolve(engine->GetAppID(), g_SteamGame, sizeof(g_SteamGame));
 }
 
 static inline bool DoesPlatformMatch(const char *platform)
@@ -216,11 +457,23 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 		}
 	case PSTATE_GAMES:
 		{
-			if (strcmp(name, "*") == 0 ||
-				strcmp(name, "#default") == 0 ||
-				DoesGameMatch(name))
+			bool isWildcard = strcmp(name, "*") == 0;
+			bool isDefault = strcmp(name, "#default") == 0;
+			bool shouldRead;
+
+			if (!HasSteamGameInheritance())
+				shouldRead = isWildcard || isDefault || DoesGameMatch(name);
+			else if (g_GameMatchMode == GameMatch_Generic)
+				shouldRead = isWildcard || isDefault;
+			else
+				shouldRead = isDefault || DoesGameMatch(name);
+
+			if (shouldRead)
 			{
-				bShouldBeReadingDefault = true;
+				bShouldBeReadingDefault =
+					!HasSteamGameInheritance() ||
+					g_GameMatchMode == GameMatch_Generic ||
+					!isDefault;
 				m_ParseState = PSTATE_GAMEDEFS;
 				m_Game = name;
 			} else {
@@ -230,6 +483,15 @@ SMCResult CGameConfig::ReadSMC_NewSection(const SMCStates *states, const char *n
 		}
 	case PSTATE_GAMEDEFS:
 		{
+			if (HasSteamGameInheritance() &&
+				m_Game == "#default" &&
+				!bShouldBeReadingDefault &&
+				strcmp(name, "#supported") != 0)
+			{
+				m_IgnoreLevel++;
+				break;
+			}
+
 			if (strcmp(name, "Offsets") == 0)
 			{
 				m_ParseState = PSTATE_GAMEDEFS_OFFSETS;
@@ -418,10 +680,6 @@ SMCResult CGameConfig::ReadSMC_KeyValue(const SMCStates *states, const char *key
 			{
 				matched_game = true;
 			}
-			if ((!had_engine && matched_game) || (matched_engine && matched_game))
-			{
-				bShouldBeReadingDefault = true;
-			}
 		}
 		else if (strcmp(key, "engine") == 0)
 		{
@@ -429,10 +687,6 @@ SMCResult CGameConfig::ReadSMC_KeyValue(const SMCStates *states, const char *key
 			if (DoesEngineMatch(value))
 			{
 				matched_engine = true;
-			}
-			if ((!had_game && matched_engine) || (matched_game && matched_engine))
-			{
-				bShouldBeReadingDefault = true;
 			}
 		}
 	} else if (m_ParseState == PSTATE_GAMEDEFS_SIGNATURES_SIG) {
@@ -555,8 +809,24 @@ SMCResult CGameConfig::ReadSMC_LeavingSection(const SMCStates *states)
 			m_ParseState = PSTATE_GAMEDEFS_OFFSETS;
 			break;
 		}
-	case PSTATE_GAMEDEFS_CRC:
 	case PSTATE_GAMEDEFS_SUPPORTED:
+		{
+			bShouldBeReadingDefault = DoesSupportedSectionMatch(
+				had_game,
+				matched_game,
+				had_engine,
+				matched_engine);
+			if (!bShouldBeReadingDefault)
+			{
+				/* If we shouldn't read the rest of this section, set the ignore level. */
+				m_IgnoreLevel = 1;
+				m_ParseState = PSTATE_GAMES;
+			} else {
+				m_ParseState = PSTATE_GAMEDEFS;
+			}
+			break;
+		}
+	case PSTATE_GAMEDEFS_CRC:
 		{
 			if (!bShouldBeReadingDefault)
 			{
@@ -861,28 +1131,39 @@ bool CGameConfig::Reparse(char *error, size_t maxlength)
 	master_reader.fileList = &fileList;
 	const char *pEngine[2] = { m_pBaseEngine, m_pEngine  };
 
-	for (unsigned char iter = 0; iter < SM_ARRAYSIZE(pEngine); ++iter)
+	/* Collect inherited base files first so direct mod files are applied last. */
+	GameMatchMode gamePasses[2];
+	size_t numGamePasses = 0;
+	if (HasSteamGameInheritance())
+		gamePasses[numGamePasses++] = GameMatch_SteamBase;
+	gamePasses[numGamePasses++] = GameMatch_Direct;
+
+	for (size_t pass = 0; pass < numGamePasses; ++pass)
 	{
-		if (pEngine[iter] == NULL)
+		g_GameMatchMode = gamePasses[pass];
+		for (unsigned char iter = 0; iter < SM_ARRAYSIZE(pEngine); ++iter)
 		{
-			continue;
-		}
+			if (pEngine[iter] == NULL)
+				continue;
 
-		this->SetParseEngine(pEngine[iter]);
-		err = textparsers->ParseSMCFile(path, &master_reader, &state, error, maxlength);
-		if (err != SMCError_Okay)
-		{
-			const char *msg = textparsers->GetSMCErrorString(err);
+			this->SetParseEngine(pEngine[iter]);
+			err = textparsers->ParseSMCFile(path, &master_reader, &state, error, maxlength);
+			if (err != SMCError_Okay)
+			{
+				const char *msg = textparsers->GetSMCErrorString(err);
 
-			logger->LogError("[SM] Error parsing master gameconf file \"%s\":", path);
-			logger->LogError("[SM] Error %d on line %d, col %d: %s", 
-				err,
-				state.line,
-				state.col,
-				msg ? msg : "Unknown error");
-			return false;
+				logger->LogError("[SM] Error parsing master gameconf file \"%s\":", path);
+				logger->LogError("[SM] Error %d on line %d, col %d: %s",
+					err,
+					state.line,
+					state.col,
+					msg ? msg : "Unknown error");
+				g_GameMatchMode = GameMatch_Direct;
+				return false;
+			}
 		}
 	}
+	g_GameMatchMode = GameMatch_Direct;
 
 	/* Go through each file we found and parse it. */
 	List<String>::iterator iter;
@@ -945,44 +1226,62 @@ bool CGameConfig::EnterFile(const char *file, char *error, size_t maxlength)
 
 	g_pSM->BuildPath(Path_SM, m_CurFile, sizeof(m_CurFile), "gamedata/%s", file);
 
-	/* Initialize parse states */
-	m_IgnoreLevel = 0;
-	bShouldBeReadingDefault = true;
-	m_ParseState = PSTATE_NONE;
 	const char *pEngine[2] = { m_pBaseEngine, m_pEngine };
 
-	for (unsigned char iter = 0; iter < SM_ARRAYSIZE(pEngine); ++iter)
+	/*
+	 * Layer compatible mod data deterministically: generic defaults, inherited
+	 * Steam/base game data, then direct current-mod overrides.
+	 */
+	GameMatchMode gamePasses[3];
+	size_t numGamePasses = 0;
+	if (HasSteamGameInheritance())
 	{
-		if (pEngine[iter] == NULL)
+		gamePasses[numGamePasses++] = GameMatch_Generic;
+		gamePasses[numGamePasses++] = GameMatch_SteamBase;
+	}
+	gamePasses[numGamePasses++] = GameMatch_Direct;
+
+	for (size_t pass = 0; pass < numGamePasses; ++pass)
+	{
+		g_GameMatchMode = gamePasses[pass];
+		for (unsigned char iter = 0; iter < SM_ARRAYSIZE(pEngine); ++iter)
 		{
-			continue;
-		}
+			if (pEngine[iter] == NULL)
+				continue;
 
-		this->SetParseEngine(pEngine[iter]);
-		if ((err=textparsers->ParseSMCFile(m_CurFile, this, &state, error, maxlength))
-			!= SMCError_Okay)
-		{
-			const char *msg = textparsers->GetSMCErrorString(err);
+			/* Initialize parse states for each engine and inheritance layer. */
+			m_IgnoreLevel = 0;
+			bShouldBeReadingDefault = true;
+			m_ParseState = PSTATE_NONE;
 
-			logger->LogError("[SM] Error parsing gameconfig file \"%s\":", m_CurFile);
-			logger->LogError("[SM] Error %d on line %d, col %d: %s", 
-				err,
-				state.line,
-				state.col,
-				msg ? msg : "Unknown error");
-
-			if (m_ParseState == PSTATE_GAMEDEFS_CUSTOM)
+			this->SetParseEngine(pEngine[iter]);
+			if ((err=textparsers->ParseSMCFile(m_CurFile, this, &state, error, maxlength))
+				!= SMCError_Okay)
 			{
-				//error occurred while parsing a custom section
-				m_CustomHandler->ReadSMC_ParseEnd(true, true);
-				m_CustomHandler = NULL;
-				m_CustomLevel = 0;
-			}
+				const char *msg = textparsers->GetSMCErrorString(err);
 
-			return false;
+				logger->LogError("[SM] Error parsing gameconfig file \"%s\":", m_CurFile);
+				logger->LogError("[SM] Error %d on line %d, col %d: %s",
+					err,
+					state.line,
+					state.col,
+					msg ? msg : "Unknown error");
+
+				if (m_ParseState == PSTATE_GAMEDEFS_CUSTOM)
+				{
+					//error occurred while parsing a custom section
+					m_CustomHandler->ReadSMC_ParseEnd(true, true);
+					m_CustomHandler = NULL;
+					m_CustomLevel = 0;
+				}
+
+				g_GameMatchMode = GameMatch_Direct;
+				return false;
+			}
 		}
 	}
 
+	g_GameMatchMode = GameMatch_Direct;
 	return true;
 }
 
@@ -1141,6 +1440,7 @@ void GameConfigManager::OnSourceModStartup(bool late)
 	strncopy(g_Game, g_pSM->GetGameFolderName(), sizeof(g_Game));
 	strncopy(g_GameDesc + 1, bridge->GetGameDescription(), sizeof(g_GameDesc) - 1);
 	bridge->GetGameName(g_GameName + 1, sizeof(g_GameName) - 1);
+	LoadSteamGameIdentity();
 }
 
 void GameConfigManager::OnSourceModAllInitialized()

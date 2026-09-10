@@ -30,6 +30,9 @@
  */
 #include <stdio.h>
 #include <assert.h>
+#include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include "sourcemod.h"
 #include "sourcemm_api.h"
 #include "sm_globals.h"
@@ -96,6 +99,49 @@ public:
 	virtual void FakeClientCommand(edict_t *pEdict, const char *szCommand)
 	{
 		serverpluginhelpers->ClientCommand(pEdict, szCommand);
+	}
+	virtual uint32_t GetAppID()
+	{
+		/*
+		 * The active mod's gameinfo declares the base Steam game whose
+		 * gamedata it inherits. Prefer it over the engine's shared SDK
+		 * context, and use the normal active-game search path.
+		 */
+		KeyValues *pGameInfo = new KeyValues("GameInfo");
+		if (g_HL2.KVLoadFromFile(pGameInfo, basefilesystem, "gameinfo.txt", "GAME"))
+		{
+			KeyValues *pFileSystem = pGameInfo->FindKey("FileSystem", false);
+			const char *value = pFileSystem
+				? pFileSystem->GetString("SteamAppId", NULL)
+				: NULL;
+
+			if (value && value[0])
+			{
+				char *end = NULL;
+				errno = 0;
+				unsigned long long appId = strtoull(value, &end, 10);
+				if (errno == 0 && end != value && *end == '\0' &&
+					appId > 0 && appId <= UINT32_MAX)
+				{
+					pGameInfo->deleteThis();
+					return static_cast<uint32_t>(appId);
+				}
+			}
+		}
+		pGameInfo->deleteThis();
+
+#if SOURCE_ENGINE > SE_DARKMESSIAH
+		int engineAppId = engine->GetAppID();
+		if (engineAppId > 0 &&
+			engineAppId != 215 &&
+			engineAppId != 218 &&
+			engineAppId != 243750)
+		{
+			return static_cast<uint32_t>(engineAppId);
+		}
+#endif
+
+		return 0;
 	}
 } engine_wrapper;
 

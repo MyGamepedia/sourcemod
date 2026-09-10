@@ -1,0 +1,51 @@
+/**
+ * Maps unique Steam application IDs to SourceMod gamedata game selectors.
+ *
+ * Shared Source SDK Base IDs such as 215, 218, and 243750 must not be added:
+ * they cannot identify one game unambiguously.
+ *
+ * If your modification has a Steam store page, you should add your modification here.
+ */
+
+"SteamIDs"
+{
+	"bms"				"362890"
+	"left4dead"			"500"
+	"left4dead2"		"550"
+	"contagion"			"238430"
+	"swarm"				"630"
+	"darkmessiah"		"2130"
+	"bloodygoodtime"	"2450"
+	"eye"				"91700"
+	"csgo"				"730"
+	"blade"				"225600"
+	"insurgency"		"222880"
+	"doi"				"447820"
+	"mcv"				"1012110"
+	"tf"				"440"
+	"dod"				"300"
+	"cstrike"			"240"
+	"hl2mp"				"320"
+	"hl1mp"				"360"
+	"ship"				"2400"
+	"!Dystopia"			"17580"
+	"$Insurgency"		"17700"
+	"FortressForever"	"253530"
+	"empires"			"17740"
+	"synergy"			"17520"
+	"zps"				"17500"
+	"ageofchivalry"		"17510"
+	"fas"				"17770"
+	"fof"				"265630"
+	"dinodday"			"70000"
+	"esmod"				"17550"
+	"iosoccer"			"673560"
+	"nucleardawn"		"17710"
+	"nmrih"				"224260"
+	"modularcombat"		"349480"
+	"kz"				"626680"
+	"reactivedrop"		"563560"
+	"open_fortress"		"3561320"
+	"treason"			"1786950"
+	"tf2classified"		"3545060"
+}
