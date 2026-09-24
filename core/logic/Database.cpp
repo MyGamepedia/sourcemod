@@ -40,7 +40,6 @@
 #include <IThreader.h>
 #include <bridge/include/ILogger.h>
 #include <bridge/include/CoreProvider.h>
-#include <bridge/include/IVEngineServerBridge.h>
 
 using namespace std::chrono_literals;
 
@@ -78,15 +77,12 @@ void DBManager::OnSourceModAllInitialized()
 	m_Builder.SetPath(m_Filename);
 
 	/*
-	 * Black Mesa non-dedicated extensions are loaded at EngineVGui::PostInit,
+	 * Black Mesa extensions are loaded at PostInit,
 	 * before the first level-change notification. Make database profiles
 	 * available to early consumers such as clientprefs.
 	 */
 #if SOURCE_ENGINE == SE_BMS
-	if (!engine->IsDedicatedServer())
-	{
-		m_Builder.StartParse();
-	}
+	m_Builder.StartParse();
 #endif
 	
 	g_PluginSys.AddPluginsListener(this);

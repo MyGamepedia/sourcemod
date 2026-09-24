@@ -62,7 +62,7 @@ SH_DECL_HOOK1_void(IVEngineServer, ServerCommand, SH_NOATTRIB, false, const char
 SH_DECL_HOOK0(IVEngineServer, GetMapEntitiesString, SH_NOATTRIB, 0, const char *);
 #if SOURCE_ENGINE == SE_BMS
 SH_DECL_MANUALHOOK0_void(EngineVGui_PostInit, 0, 0, 0);
-static IEngineVGui *s_pEngineVGui = NULL;
+SH_DECL_MANUALHOOK0_void(ServerGameDLL_PostInit, 0, 0, 0);
 #endif
 
 SourceModBase g_SourceMod;
@@ -91,7 +91,7 @@ SourceModBase::SourceModBase()
 	m_IsInitialPluginLoad = false;
 	m_DidInitialPluginLoad = false;
 	m_EngineReady = false;
-	m_EngineVGuiHooked = false;
+	m_PostInitHookId = 0;
 	m_ExecPluginReload = false;
 	m_GotBasePath = false;
 }
@@ -170,7 +170,7 @@ bool SourceModBase::InitializeSourceMod(char *error, size_t maxlength, bool late
 	m_IsInitialPluginLoad = false;
 	m_DidInitialPluginLoad = false;
 	m_EngineReady = false;
-	m_EngineVGuiHooked = false;
+	m_PostInitHookId = 0;
 
 	const char *gamepath = g_SMAPI->GetBaseDir();
 
@@ -259,7 +259,11 @@ void SourceModBase::StartSourceMod(bool late)
 	}
 	
 #if SOURCE_ENGINE == SE_BMS
-	InitializeEngineVGuiHook(); //this should run here when gamedata is ready
+	/* Gamedata is ready now; late loads have already missed PostInit. */
+	if (!late)
+	{
+		InitializePostInitHook();
+	}
 #endif
 
 	/* Notify! */
@@ -314,42 +318,66 @@ void SourceModBase::LoadInitialPlugins()
 }
 
 #if SOURCE_ENGINE == SE_BMS
-void SourceModBase::InitializeEngineVGuiHook()
+void SourceModBase::InitializePostInitHook()
 {
-	if (g_bIsDedicatedServer)
-	{
-		return;
-	}
+	const char *offsetName = g_bIsDedicatedServer
+	                        ? "CServerGameDLL::PostInit"
+	                        : "EngineVGui::PostInit";
 
 	int offset;
-	if (!g_pGameConf->GetOffset("EngineVGui::PostInit", &offset) || offset < 0)
+	if (!g_pGameConf->GetOffset(offsetName, &offset) || offset < 0)
 	{
-		logger->LogError("[SM] Missing EngineVGui::PostInit offset; "
-		                 "non-dedicated plugins will fall back to the first LevelInit.");
+		logger->LogError("[SM] Missing %s offset; "
+		                 "plugins will fall back to the first LevelInit.", offsetName);
 		return;
 	}
 
-	s_pEngineVGui = reinterpret_cast<IEngineVGui *>(
-		g_SMAPI->GetEngineFactory()(VENGINE_VGUI_VERSION, NULL));
-	if (s_pEngineVGui == NULL)
+	if (g_bIsDedicatedServer)
 	{
-		logger->LogError("[SM] Could not acquire %s; "
-		                 "non-dedicated plugins will fall back to the first LevelInit.",
-		                 VENGINE_VGUI_VERSION);
-		return;
+		SH_MANUALHOOK_RECONFIGURE(ServerGameDLL_PostInit, offset, 0, 0);
+		m_PostInitHookId = SH_ADD_MANUALHOOK(ServerGameDLL_PostInit,
+		                                   gamedll,
+		                                   SH_MEMBER(this, &SourceModBase::PostInit_Post),
+		                                   true);
+	}
+	else
+	{
+		IEngineVGui *engineVGui = reinterpret_cast<IEngineVGui *>(
+			g_SMAPI->GetEngineFactory()(VENGINE_VGUI_VERSION, NULL));
+		if (engineVGui == NULL)
+		{
+			logger->LogError("[SM] Could not acquire %s; "
+			                 "plugins will fall back to the first LevelInit.",
+			                 VENGINE_VGUI_VERSION);
+			return;
+		}
+
+		SH_MANUALHOOK_RECONFIGURE(EngineVGui_PostInit, offset, 0, 0);
+		m_PostInitHookId = SH_ADD_MANUALHOOK(EngineVGui_PostInit,
+		                                   engineVGui,
+		                                   SH_MEMBER(this, &SourceModBase::PostInit_Post),
+		                                   true);
 	}
 
-	SH_MANUALHOOK_RECONFIGURE(EngineVGui_PostInit, offset, 0, 0);
-	SH_ADD_MANUALHOOK(EngineVGui_PostInit,
-	                  s_pEngineVGui,
-	                  SH_MEMBER(this, &SourceModBase::EngineVGuiPostInit_Post),
-	                  true);
-	m_EngineVGuiHooked = true;
+	if (m_PostInitHookId == 0)
+	{
+		logger->LogError("[SM] Could not hook %s; "
+		                 "plugins will fall back to the first LevelInit.", offsetName);
+	}
 }
 
-void SourceModBase::BootstrapNonDedicated(bool beforeValveRc)
+void SourceModBase::RemovePostInitHook()
 {
-	if (g_bIsDedicatedServer || m_EngineReady)
+	if (m_PostInitHookId != 0)
+	{
+		SH_REMOVE_HOOK_ID(m_PostInitHookId);
+		m_PostInitHookId = 0;
+	}
+}
+
+void SourceModBase::BootstrapEngine(bool beforeValveRc)
+{
+	if (m_EngineReady)
 	{
 		return;
 	}
@@ -357,7 +385,7 @@ void SourceModBase::BootstrapNonDedicated(bool beforeValveRc)
 	if (g_pIServer == NULL)
 	{
 		logger->LogError("[SM] IServer is unavailable; "
-		                 "non-dedicated plugin bootstrap is deferred.");
+		                 "plugin bootstrap is deferred.");
 		return;
 	}
 
@@ -365,7 +393,7 @@ void SourceModBase::BootstrapNonDedicated(bool beforeValveRc)
 	if (maxClients <= 0 || maxClients > SM_MAXPLAYERS)
 	{
 		logger->LogError("[SM] IServer returned invalid MaxClients value %d; "
-		                 "non-dedicated plugin bootstrap is deferred.",
+		                 "plugin bootstrap is deferred.",
 		                 maxClients);
 		return;
 	}
@@ -378,9 +406,10 @@ void SourceModBase::BootstrapNonDedicated(bool beforeValveRc)
 	g_CoreConfig.OnSourceModEngineReady(beforeValveRc);
 }
 
-void SourceModBase::EngineVGuiPostInit_Post()
+void SourceModBase::PostInit_Post()
 {
-	BootstrapNonDedicated(true);
+	BootstrapEngine(true);
+	RemovePostInitHook();
 	RETURN_META(MRES_IGNORED);
 }
 #endif
@@ -415,14 +444,17 @@ bool SourceModBase::LevelInit(char const *pMapName, char const *pMapEntities, ch
 	}
 
 #if SOURCE_ENGINE == SE_BMS
-	if (g_bIsDedicatedServer)
-	{
-		DoGlobalPluginLoads();
-	}
-	else if (!m_DidInitialPluginLoad)
+	/* No startup hook should survive into map loading. */
+	RemovePostInitHook();
+	if (!m_DidInitialPluginLoad)
 	{
 		/* PostInit was unavailable or SourceMod itself was loaded too late. */
-		BootstrapNonDedicated(false);
+		BootstrapEngine(false);
+	}
+	else if (g_bIsDedicatedServer)
+	{
+		/* Keep the normal dedicated-server plugin refresh on map changes. */
+		DoGlobalPluginLoads();
 	}
 #else
 	DoGlobalPluginLoads();
@@ -603,15 +635,7 @@ void SourceModBase::CloseSourceMod()
 	SH_REMOVE_HOOK(IVEngineServer, GetMapEntitiesString, engine, SH_MEMBER(this, &SourceModBase::GetMapEntitiesString), false);
 
 #if SOURCE_ENGINE == SE_BMS
-	if (m_EngineVGuiHooked && s_pEngineVGui != NULL)
-	{
-		SH_REMOVE_MANUALHOOK(EngineVGui_PostInit,
-		                     s_pEngineVGui,
-		                     SH_MEMBER(this, &SourceModBase::EngineVGuiPostInit_Post),
-		                     true);
-		m_EngineVGuiHooked = false;
-		s_pEngineVGui = NULL;
-	}
+	RemovePostInitHook();
 #endif
 
 	if (g_Loaded)
@@ -791,7 +815,7 @@ void SourceModBase::AllPluginsLoaded()
 	}
 
 	/*
-	 * Extensions may have been initialized at EngineVGui::PostInit before
+	 * Extensions may have been initialized at PostInit before
 	 * deferred MetaMod plugins existed. Give those plugins the normal
 	 * discovery notification once MetaMod completes its real initial load.
 	 */

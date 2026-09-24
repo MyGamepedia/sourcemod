@@ -25,6 +25,12 @@
 				"windows"	"12"
 				"linux"		"13"
 			}
+			
+			"CServerGameDLL::PostInit"
+			{
+				"windows"	"30"
+				"linux"		"30"
+			}
 
 			"EntInfo"
 			{

@@ -141,9 +141,10 @@ private:
 	void ShutdownServices();
 	void LoadInitialPlugins();
 #if SOURCE_ENGINE == SE_BMS
-	void InitializeEngineVGuiHook();
-	void EngineVGuiPostInit_Post();
-	void BootstrapNonDedicated(bool beforeValveRc);
+	void InitializePostInitHook();
+	void RemovePostInitHook();
+	void PostInit_Post();
+	void BootstrapEngine(bool beforeValveRc);
 #endif
 private:
 	const char* GetMapEntitiesString();
@@ -154,7 +155,7 @@ private:
 	bool m_IsInitialPluginLoad;
 	bool m_DidInitialPluginLoad;
 	bool m_EngineReady;
-	bool m_EngineVGuiHooked;
+	int m_PostInitHookId;
 	bool m_ExecPluginReload;
 	bool m_ExecOnMapEnd;
 	unsigned int m_target;
