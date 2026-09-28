@@ -659,7 +659,7 @@ native bool DHookRemoveEntityListener(ListenType type, ListenCB callback);
  *
  * @param type              Type of listener to add.
  * @param callback          Callback to use.
- * @error                   Invalid type/callback or BMS Client Entity Manager is unavailable.
+ * @error                   Invalid type/callback or DHooks client entity support is unavailable.
  */
 native void DHookAddEntityListenerClient(ListenType type, ListenCB callback);
 
@@ -670,7 +670,7 @@ native void DHookAddEntityListenerClient(ListenType type, ListenCB callback);
  * @param callback          Callback this listener was using.
  *
  * @return                  true if one was removed, false otherwise.
- * @error                   Invalid type/callback or BMS Client Entity Manager is unavailable.
+ * @error                   Invalid type/callback or DHooks client entity support is unavailable.
  */
 native bool DHookRemoveEntityListenerClient(ListenType type, ListenCB callback);
 
@@ -794,7 +794,7 @@ native int DHookEntity(Handle setup, bool post, int entity, DHookRemovalCB remov
  * @param callback          Optional hook callback; otherwise it must be stored in setup.
  *
  * @return                  INVALID_HOOK_ID on failure, hook id on success.
- * @error                   Invalid setup/reference/type/callback, edict type, or missing BMS extension.
+ * @error                   Invalid setup/reference/type/callback, edict type, or unavailable client entity support.
  */
 native int DHookEntityClient(Handle setup, bool post, int clientEntity, DHookRemovalCB removalcb=INVALID_FUNCTION, DHookCallback callback=INVALID_FUNCTION);
 

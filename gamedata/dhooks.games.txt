@@ -1,0 +1,16 @@
+"Games"
+{
+	"bms"
+	{
+		"Offsets"
+		{
+			// Byte offset from the IClientEntityList* returned by
+			// VClientEntityList003 to CClientEntityList::m_entityListeners.
+			// Verified for the inspected Black Mesa Windows x86 client.
+			"ClientEntityListeners"
+			{
+				"windows" "4"
+			}
+		}
+	}
+}

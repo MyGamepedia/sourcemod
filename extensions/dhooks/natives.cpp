@@ -611,9 +611,9 @@ cell_t HookEntityClientImpl(IPluginContext *pContext, const cell_t *params, uint
 		return 0;
 	}
 
-	if(!g_pBmsClientEntityManager)
+	if(!g_DHooksClientEntities.IsAvailable())
 	{
-		return pContext->ThrowNativeError("DHookEntityClient requires the BMS Client Entity Manager extension");
+		return pContext->ThrowNativeError("DHooks client entity support is unavailable in this environment");
 	}
 
 	IPluginFunction *callback = GetCallback(pContext, setup, params, callbackIndex);
@@ -622,18 +622,18 @@ cell_t HookEntityClientImpl(IPluginContext *pContext, const cell_t *params, uint
 		return pContext->ThrowNativeError("Failed to hook client entity %i, no callback provided", params[3]);
 	}
 
-	void *entity = g_pBmsClientEntityManager->ResolveClientEntityRef(params[3]);
+	void *entity = g_DHooksClientEntities.ResolveClientEntityRef(params[3]);
 	if(!entity)
 	{
 		return pContext->ThrowNativeError("Invalid client entity reference %i (0x%08X)", params[3], params[3]);
 	}
 
-	int clientRef = g_pBmsClientEntityManager->EntityToClientRef(entity);
+	int clientRef = g_DHooksClientEntities.EntityToClientRef(entity);
 	if(clientRef == -1)
 	{
 		return pContext->ThrowNativeError("Could not obtain a stable reference for client entity %i", params[3]);
 	}
-	int clientHandleRef = g_pBmsClientEntityManager->EntityToClientHandleRef(entity);
+	int clientHandleRef = g_DHooksClientEntities.EntityToClientHandleRef(entity);
 	if(clientHandleRef == -1)
 	{
 		return pContext->ThrowNativeError("Could not obtain a serial-qualified reference for client entity %i", params[3]);
@@ -889,7 +889,7 @@ cell_t Native_GetParam(IPluginContext *pContext, const cell_t *params)
 			void *entity = *(void **)addr;
 			if(paramStruct->dg->hookType == HookType_EntityClient)
 			{
-				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(entity) : -1;
+				return g_DHooksClientEntities.EntityToClientRef(entity);
 			}
 			return gamehelpers->EntityToBCompatRef((CBaseEntity *)entity);
 		}
@@ -937,7 +937,7 @@ cell_t Native_SetParam(IPluginContext *pContext, const cell_t *params)
 			if(paramStruct->dg->hookType == HookType_EntityClient)
 			{
 				void *entity = params[3] == -1 ? nullptr :
-					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[3]) : nullptr);
+					g_DHooksClientEntities.ResolveClientEntityRef(params[3]);
 				if(params[3] != -1 && !entity)
 				{
 					return pContext->ThrowNativeError("Invalid client entity reference passed for param value");
@@ -1005,7 +1005,7 @@ cell_t Native_GetReturn(IPluginContext *pContext, const cell_t *params)
 		{
 			if(returnStruct->hookType == HookType_EntityClient)
 			{
-				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(returnStruct->orgResult) : -1;
+				return g_DHooksClientEntities.EntityToClientRef(returnStruct->orgResult);
 			}
 			return gamehelpers->EntityToBCompatRef((CBaseEntity *)returnStruct->orgResult);
 		}
@@ -1041,7 +1041,7 @@ cell_t Native_SetReturn(IPluginContext *pContext, const cell_t *params)
 			if(returnStruct->hookType == HookType_EntityClient)
 			{
 				void *entity = params[2] == -1 ? nullptr :
-					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[2]) : nullptr);
+					g_DHooksClientEntities.ResolveClientEntityRef(params[2]);
 				if(params[2] != -1 && !entity)
 				{
 					return pContext->ThrowNativeError("Invalid client entity reference passed for return value");
@@ -1326,9 +1326,9 @@ cell_t Native_RemoveEntityListener(IPluginContext *pContext, const cell_t *param
 // native void DHookAddEntityListenerClient(ListenType type, ListenCB callback);
 cell_t Native_AddEntityListenerClient(IPluginContext *pContext, const cell_t *params)
 {
-	if(!g_pBmsClientEntityManager)
+	if(!g_DHooksClientEntities.IsAvailable())
 	{
-		return pContext->ThrowNativeError("DHookAddEntityListenerClient requires the BMS Client Entity Manager extension");
+		return pContext->ThrowNativeError("DHooks client entity support is unavailable in this environment");
 	}
 	if(!g_pEntityListener)
 	{
@@ -1350,9 +1350,9 @@ cell_t Native_AddEntityListenerClient(IPluginContext *pContext, const cell_t *pa
 // native bool DHookRemoveEntityListenerClient(ListenType type, ListenCB callback);
 cell_t Native_RemoveEntityListenerClient(IPluginContext *pContext, const cell_t *params)
 {
-	if(!g_pBmsClientEntityManager)
+	if(!g_DHooksClientEntities.IsAvailable())
 	{
-		return pContext->ThrowNativeError("DHookRemoveEntityListenerClient requires the BMS Client Entity Manager extension");
+		return pContext->ThrowNativeError("DHooks client entity support is unavailable in this environment");
 	}
 	if(!g_pEntityListener)
 	{
@@ -1395,8 +1395,8 @@ cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 		{
 			if(hookInfo->hookType == HookType_EntityClient)
 			{
-				return g_pBmsClientEntityManager ?
-					g_pBmsClientEntityManager->ClientHandleToEntityRef((void *)((intptr_t)addr + params[3])) : -1;
+				return g_DHooksClientEntities.ClientHandleToEntityRef(
+					(void *)((intptr_t)addr + params[3]));
 			}
 			edict_t *pEdict = gamehelpers->GetHandleEntity(*(CBaseHandle *)((intptr_t)addr +params[3]));
 
@@ -1416,7 +1416,7 @@ cell_t Native_GetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 			void *entity = *(void **)((intptr_t)addr + params[3]);
 			if(hookInfo->hookType == HookType_EntityClient)
 			{
-				return g_pBmsClientEntityManager ? g_pBmsClientEntityManager->EntityToClientRef(entity) : -1;
+				return g_DHooksClientEntities.EntityToClientRef(entity);
 			}
 			return gamehelpers->EntityToBCompatRef((CBaseEntity *)entity);
 		}
@@ -1463,8 +1463,8 @@ cell_t Native_SetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 		{
 			if(hookInfo->hookType == HookType_EntityClient)
 			{
-				if(!g_pBmsClientEntityManager ||
-					!g_pBmsClientEntityManager->EntityRefToClientHandle(params[5], (void *)((intptr_t)addr + params[3])))
+				if(!g_DHooksClientEntities.EntityRefToClientHandle(
+					params[5], (void *)((intptr_t)addr + params[3])))
 				{
 					return pContext->ThrowNativeError("Invalid client entity reference passed for EHANDLE value");
 				}
@@ -1488,7 +1488,7 @@ cell_t Native_SetParamObjectPtrVar(IPluginContext *pContext, const cell_t *param
 			if(hookInfo->hookType == HookType_EntityClient)
 			{
 				void *entity = params[5] == -1 ? nullptr :
-					(g_pBmsClientEntityManager ? g_pBmsClientEntityManager->ResolveClientEntityRef(params[5]) : nullptr);
+					g_DHooksClientEntities.ResolveClientEntityRef(params[5]);
 				if(params[5] != -1 && !entity)
 				{
 					return pContext->ThrowNativeError("Invalid client entity reference passed");

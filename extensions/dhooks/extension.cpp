@@ -40,8 +40,8 @@ SMEXT_LINK(&g_DHooksIface);
 IBinTools *g_pBinTools;
 ISDKHooks *g_pSDKHooks;
 ISDKTools *g_pSDKTools;
-SourceMod::IBmsClientEntityManager *g_pBmsClientEntityManager = NULL;
 DHooksEntityListener *g_pEntityListener = NULL;
+IGameConfig *g_pDHooksClientGameConf = NULL;
 
 HandleType_t g_HookSetupHandle = 0;
 HandleType_t g_HookParamsHandle = 0;
@@ -86,13 +86,33 @@ bool DHooks::SDK_OnLoad(char *error, size_t maxlength, bool late)
 	sharesys->AddDependency(myself, "bintools.ext", true, true);
 	sharesys->AddDependency(myself, "sdktools.ext", true, true);
 	sharesys->AddDependency(myself, "sdkhooks.ext", true, true);
-	sharesys->AddDependency(myself, "bms_client_entity_manager.ext", false, true);
 
 	sharesys->RegisterLibrary(myself, "dhooks");
 	plsys->AddPluginsListener(this);
 	sharesys->AddNatives(myself, g_Natives);
 
 	g_pEntityListener = new DHooksEntityListener();
+
+#if defined(_WIN32) && !defined(_WIN64)
+	if (smutils && strcmp(smutils->GetGameFolderName(), "bms") == 0)
+	{
+		char clientError[256] = {};
+		if (!gameconfs->LoadGameConfigFile("dhooks", &g_pDHooksClientGameConf,
+			clientError, sizeof(clientError)))
+		{
+			smutils->LogMessage(myself,
+				"DHooks client entity support disabled: could not load dhooks gamedata: %s",
+				clientError);
+		}
+		else if (!g_DHooksClientEntities.Initialize(g_pDHooksClientGameConf,
+			clientError, sizeof(clientError)))
+		{
+			smutils->LogMessage(myself,
+				"DHooks client entity support disabled: %s", clientError);
+		}
+	}
+#endif
+
 	g_pSignatures = new SignatureGameConfig();
 	g_MainThreadId = std::this_thread::get_id();
 
@@ -121,14 +141,6 @@ void DHooks::SDK_OnAllLoaded()
 	SM_GET_LATE_IFACE(BINTOOLS, g_pBinTools);
 	SM_GET_LATE_IFACE(SDKHOOKS, g_pSDKHooks);
 
-	sharesys->RequestInterface(
-		SMINTERFACE_BMS_CLIENT_ENTITY_MANAGER_NAME,
-		SMINTERFACE_BMS_CLIENT_ENTITY_MANAGER_VERSION,
-		myself,
-		reinterpret_cast<SMInterface **>(&g_pBmsClientEntityManager));
-	if (g_pBmsClientEntityManager)
-		g_pBmsClientEntityManager->AddClientEntityListener(g_pEntityListener);
-
 	if (g_pSDKHooks)
 	{
 		g_pSDKHooks->AddEntityListener(g_pEntityListener);
@@ -138,14 +150,11 @@ void DHooks::SDK_OnAllLoaded()
 
 void DHooks::SDK_OnUnload()
 {
+	g_DHooksClientEntities.Shutdown();
 	CleanupHooks();
 	CleanupDetours();
 	if(g_pEntityListener)
 	{
-		if(g_pBmsClientEntityManager)
-		{
-			g_pBmsClientEntityManager->RemoveClientEntityListener(g_pEntityListener);
-		}
 		g_pEntityListener->CleanupListeners();
 		g_pEntityListener->CleanupRemoveList();
 		if (g_pSDKHooks)
@@ -155,7 +164,6 @@ void DHooks::SDK_OnUnload()
 		delete g_pEntityListener;
 		g_pEntityListener = NULL;
 	}
-	g_pBmsClientEntityManager = NULL;
 	plsys->RemovePluginsListener(this);
 
 	handlesys->RemoveType(g_HookSetupHandle, myself->GetIdentity());
@@ -163,6 +171,11 @@ void DHooks::SDK_OnUnload()
 	handlesys->RemoveType(g_HookReturnHandle, myself->GetIdentity());
 
 	gameconfs->RemoveUserConfigHook("Functions", g_pSignatures);
+	if (g_pDHooksClientGameConf)
+	{
+		gameconfs->CloseGameConfigFile(g_pDHooksClientGameConf);
+		g_pDHooksClientGameConf = NULL;
+	}
 }
 
 bool DHooks::SDK_OnMetamodLoad(ISmmAPI *ismm, char *error, size_t maxlength, bool late)
@@ -184,7 +197,7 @@ void DHooks::OnPluginUnloaded(IPlugin *plugin)
 		g_pEntityListener->CleanupListeners(plugin->GetBaseContext());
 	}
 }
-// The next 3 functions handle cleanup if our interfaces are going to be unloaded
+// These functions handle cleanup if required interfaces are unloaded.
 bool DHooks::QueryRunning(char *error, size_t maxlength)
 {
 	SM_CHECK_IFACE(SDKTOOLS, g_pSDKTools);
@@ -192,24 +205,13 @@ bool DHooks::QueryRunning(char *error, size_t maxlength)
 	SM_CHECK_IFACE(SDKHOOKS, g_pSDKHooks);
 	return true;
 }
-bool DHooks::QueryInterfaceDrop(SMInterface *pInterface)
-{
-	if (pInterface == g_pBmsClientEntityManager)
-		return false;
-
-	return IExtensionInterface::QueryInterfaceDrop(pInterface);
-}
-
 void DHooks::NotifyInterfaceDrop(SMInterface *pInterface)
 {
-	if (pInterface == g_pBmsClientEntityManager)
-	{
-		g_pBmsClientEntityManager = NULL;
-	}
-	else if(strcmp(pInterface->GetInterfaceName(), SMINTERFACE_SDKHOOKS_NAME) == 0)
+	if(strcmp(pInterface->GetInterfaceName(), SMINTERFACE_SDKHOOKS_NAME) == 0)
 	{
 		if(g_pEntityListener)
 		{
+			g_DHooksClientEntities.Shutdown();
 			// If this fails, remove this line and just delete the ent listener instead
 			g_pSDKHooks->RemoveEntityListener(g_pEntityListener);
 

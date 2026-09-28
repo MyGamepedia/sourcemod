@@ -79,6 +79,7 @@ public:
 	void AddInterface(SMInterface *pInterface);
 	void AddPlugin(CPlugin *pPlugin);
 	void MarkAllLoaded();
+	void MarkAllPluginsLoaded();
 	void AddLibrary(const char *library);
 	bool IsRequired();
 public:
@@ -105,6 +106,7 @@ protected:
 	List<String> m_Libraries;
 	unsigned int unload_code;
 	bool m_bFullyLoaded;
+	bool m_bAllPluginsLoaded;
 	bool m_bRequired;
 };
 
@@ -171,6 +173,11 @@ public:
 	void AddInterface(IExtension *pOwner, SMInterface *pInterface);
 	void BindChildPlugin(IExtension *pParent, SMPlugin *pPlugin);
 	void MarkAllLoaded();
+	void MarkAllPluginsLoaded();
+	bool AreAllPluginsLoaded() const
+	{
+		return m_bAllPluginsLoaded;
+	}
 	void AddDependency(IExtension *pSource, const char *file, bool required, bool autoload);
 	void TryAutoload();
 	void AddLibrary(IExtension *pSource, const char *library);
@@ -192,6 +199,7 @@ private:
 	CExtension *FindByOrder(unsigned int num);
 private:
 	List<CExtension *> m_Libs;
+	bool m_bAllPluginsLoaded;
 };
 
 extern CExtensionManager g_Extensions;

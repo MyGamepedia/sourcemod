@@ -226,6 +226,11 @@ void SDKExtension::OnExtensionsAllLoaded()
 	SDK_OnAllLoaded();
 }
 
+void SDKExtension::OnAllPluginsLoaded()
+{
+	SDK_OnAllPluginsLoaded();
+}
+
 void SDKExtension::OnExtensionUnload()
 {
 #if defined SMEXT_CONF_METAMOD
@@ -288,6 +293,10 @@ void SDKExtension::SDK_OnPauseChange(bool paused)
 }
 
 void SDKExtension::SDK_OnAllLoaded()
+{
+}
+
+void SDKExtension::SDK_OnAllPluginsLoaded()
 {
 }
 

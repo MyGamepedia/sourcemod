@@ -141,6 +141,12 @@ public:
 	virtual void SDK_OnAllLoaded();
 
 	/**
+	 * @brief Called once all initially loaded SourcePawn plugins have completed
+	 * OnPluginStart() and OnAllPluginsLoaded().
+	 */
+	virtual void SDK_OnAllPluginsLoaded();
+
+	/**
 	 * @brief Called when the pause state is changed.
 	 */
 	virtual void SDK_OnPauseChange(bool paused);
@@ -197,6 +203,7 @@ public: //IExtensionInterface
 	virtual bool OnExtensionLoad(IExtension *me, IShareSys *sys, char *error, size_t maxlength, bool late);
 	virtual void OnExtensionUnload();
 	virtual void OnExtensionsAllLoaded();
+	virtual void OnAllPluginsLoaded();
 
 	/** Returns whether or not this is a Metamod-based extension */
 	virtual bool IsMetamodExtension();

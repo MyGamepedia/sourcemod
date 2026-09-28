@@ -138,9 +138,10 @@ namespace SourceMod
 	 * V7 - added OnDependenciesDropped() to IExtensionInterface.
 	 * V8 - added OnCoreMapEnd() to IExtensionInterface.
 	 * V9 - SourcePawn API revamp
+	 * V10 - added OnAllPluginsLoaded() to IExtensionInterface.
 	 */
 	#define SMINTERFACE_EXTENSIONAPI_VERSION_MIN	9
-	#define SMINTERFACE_EXTENSIONAPI_VERSION		9
+	#define SMINTERFACE_EXTENSIONAPI_VERSION		10
 
 	/**
 	 * @brief The interface an extension must expose.
@@ -336,6 +337,18 @@ namespace SourceMod
 		 */
 
 		virtual void OnCoreMapEnd()
+		{
+		}
+
+		/**
+		 * @brief Called once after the initial SourcePawn plugin loading cycle
+		 * has completed. At this point all initially loaded plugins have
+		 * completed OnPluginStart() and OnAllPluginsLoaded().
+		 *
+		 * Extensions loaded after this point receive this callback once after
+		 * OnExtensionsAllLoaded().
+		 */
+		virtual void OnAllPluginsLoaded()
 		{
 		}
 	};

@@ -35,6 +35,7 @@ for cxx in builder.targets:
 
   binary.sources += [
     'extension.cpp',
+    'client_entities.cpp',
     'listeners.cpp',
     'natives.cpp',
     'signatures.cpp',

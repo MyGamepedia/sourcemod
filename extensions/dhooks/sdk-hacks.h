@@ -32,6 +32,12 @@
 #ifndef _INCLUDE_SDK_HACKS_H_
 #define _INCLUDE_SDK_HACKS_H_
 
+#include <cstdint>
+
+#ifndef INVALID_EHANDLE_INDEX
+#define INVALID_EHANDLE_INDEX 0xFFFFFFFFu
+#endif
+
 class SDKVector
 {
 public:
@@ -91,16 +97,21 @@ private:
 
 class CBaseHandle
 {
-/*public:
-	bool IsValid() const {return m_Index != INVALID_EHANDLE_INDEX;}
-	int GetEntryIndex() const
-	{
-		if ( !IsValid() )
-			return NUM_ENT_ENTRIES-1;
-		return m_Index & ENT_ENTRY_MASK;
-	}*/
+public:
+	CBaseHandle() : m_Index(INVALID_EHANDLE_INDEX) {}
+	explicit CBaseHandle(uint32_t value) : m_Index(value) {}
+
+	void Term() { m_Index = INVALID_EHANDLE_INDEX; }
+	bool IsValid() const { return m_Index != INVALID_EHANDLE_INDEX; }
+	int ToInt() const { return static_cast<int>(m_Index); }
+
+	bool operator==(const CBaseHandle &other) const { return m_Index == other.m_Index; }
+	bool operator!=(const CBaseHandle &other) const { return m_Index != other.m_Index; }
+
 private:
-	unsigned long	m_Index;
+	uint32_t m_Index;
 };
+
+static_assert(sizeof(CBaseHandle) == 4, "CBaseHandle must match the Source x86 ABI");
 
 #endif

@@ -41,14 +41,13 @@ enum ListenType
 	ListenType_Deleted
 };
 
-class DHooksEntityListener : public ISMEntityListener,
-	public SourceMod::IBmsClientEntityManagerListener
+class DHooksEntityListener : public ISMEntityListener
 {
 public:
 	void OnEntityCreated(CBaseEntity *pEntity, const char *classname) override;
 	void OnEntityDestroyed(CBaseEntity *pEntity) override;
-	void OnClientEntityCreated(void *entity, int clientRef, const char *classname) override;
-	void OnClientEntityDestroyed(void *entity, int clientRef) override;
+	void OnClientEntityCreated(void *entity, int clientRef, const char *classname);
+	void OnClientEntityDestroyed(void *entity, int clientRef);
 	void CleanupListeners(IPluginContext *func = NULL);
 	void CleanupRemoveList();
 	bool AddPluginEntityListener(ListenType type, IPluginFunction *callback);
@@ -56,6 +55,8 @@ public:
 	bool AddPluginClientEntityListener(ListenType type, IPluginFunction *callback);
 	bool RemovePluginClientEntityListener(ListenType type, IPluginFunction *callback);
 };
+
+extern DHooksEntityListener *g_pEntityListener;
 
 
 struct EntityListener

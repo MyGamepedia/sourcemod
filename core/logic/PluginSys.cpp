@@ -880,6 +880,7 @@ void CPluginManager::LoadAll(const char *config_path, const char *plugins_path)
 	LoadAll_SecondPass();
 	g_Extensions.MarkAllLoaded();
 	AllPluginsLoaded();
+	g_Extensions.MarkAllPluginsLoaded();
 }
 
 void CPluginManager::LoadAll_FirstPass(const char *config, const char *basedir)

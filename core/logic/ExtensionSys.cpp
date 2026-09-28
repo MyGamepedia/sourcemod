@@ -53,6 +53,7 @@ void CExtension::Initialize(const char *filename, const char *path, bool bRequir
 	m_pIdentToken = NULL;
 	unload_code = 0;
 	m_bFullyLoaded = false;
+	m_bAllPluginsLoaded = false;
 	m_File.assign(filename);
 	m_Path.assign(path);
 	char real_name[PLATFORM_MAX_PATH];
@@ -242,6 +243,7 @@ void CLocalExtension::Unload()
 	}
 
 	m_bFullyLoaded = false;
+	m_bAllPluginsLoaded = false;
 }
 
 bool CRemoteExtension::Reload(char *error, size_t maxlength)
@@ -347,6 +349,26 @@ void CExtension::MarkAllLoaded()
 	{
 		m_bFullyLoaded = true;
 		m_pAPI->OnExtensionsAllLoaded();
+
+		if (g_Extensions.AreAllPluginsLoaded())
+		{
+			MarkAllPluginsLoaded();
+		}
+	}
+}
+
+void CExtension::MarkAllPluginsLoaded()
+{
+	if (m_bAllPluginsLoaded || !m_bFullyLoaded)
+	{
+		return;
+	}
+
+	m_bAllPluginsLoaded = true;
+
+	if (m_pAPI && m_pAPI->GetExtensionVersion() >= 10)
+	{
+		m_pAPI->OnAllPluginsLoaded();
 	}
 }
 
@@ -474,6 +496,7 @@ bool CExtension::IsRequired()
 
 void CExtensionManager::OnSourceModAllInitialized()
 {
+	m_bAllPluginsLoaded = false;
 	g_ExtType = g_ShareSys.CreateIdentType("EXTENSION");
 	pluginsys->AddPluginsListener(this);
 	rootmenu->AddRootConsoleCommand3("exts", "Manage extensions", this);
@@ -495,6 +518,8 @@ void CExtensionManager::Shutdown()
 	{
 		UnloadExtension((*iter));
 	}
+
+	m_bAllPluginsLoaded = false;
 }
 
 void CExtensionManager::TryAutoload()
@@ -887,6 +912,27 @@ void CExtensionManager::MarkAllLoaded()
 	}
 }
 
+void CExtensionManager::MarkAllPluginsLoaded()
+{
+	if (m_bAllPluginsLoaded)
+	{
+		return;
+	}
+
+	m_bAllPluginsLoaded = true;
+
+	for (List<CExtension *>::iterator iter = m_Libs.begin(); iter != m_Libs.end(); iter++)
+	{
+		CExtension *pExt = (*iter);
+		if (!pExt->IsLoaded())
+		{
+			continue;
+		}
+
+		pExt->MarkAllPluginsLoaded();
+	}
+}
+
 void CExtensionManager::AddDependency(IExtension *pSource, const char *file, bool required, bool autoload)
 {
 	/* This function doesn't really need to do anything now.  We make sure the 
@@ -1256,6 +1302,7 @@ CExtension *CExtensionManager::GetExtensionFromIdent(IdentityToken_t *ptr)
 }
 
 CExtensionManager::CExtensionManager()
+	: m_bAllPluginsLoaded(false)
 {
 }
 
