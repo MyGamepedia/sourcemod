@@ -6,7 +6,6 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
-#include <bridge/include/IVEngineServerBridge.h>
 
 #if defined(_WIN32)
 # include <Windows.h>
@@ -44,9 +43,6 @@ bool DHooksClientEntityManager::Initialize(SourceMod::IGameConfig *gameConfig,
 	return false;
 #else
 	
-	if (engine->IsDedicatedServer())
-		return false;
-
 	if (!gameConfig)
 	{
 		SetError(error, maxlength, "Gamedata gamedata/dhooks.games.txt is unavailable!");
@@ -78,8 +74,7 @@ bool DHooksClientEntityManager::ResolveClientInterfaces(char *error, size_t maxl
 	HMODULE clientModule = GetModuleHandleA("client.dll");
 	if (!clientModule)
 	{
-		SetError(error, maxlength,
-			"client.dll is not loaded (expected on a dedicated server)");
+		SetError(error, maxlength, "Can't resolve client interfaces, client.dll is not loaded! Expected on a dedicated server.");
 		return false;
 	}
 
