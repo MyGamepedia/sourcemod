@@ -94,18 +94,23 @@ bool DHooks::SDK_OnLoad(char *error, size_t maxlength, bool late)
 	g_pEntityListener = new DHooksEntityListener();
 
 #if defined(_WIN32) && !defined(_WIN64)
-	if (smutils && strcmp(smutils->GetGameFolderName(), "bms") == 0)
+	// Let SourceMod select direct mod and inherited SteamAppID gamedata.
+	// A folder/engine check here would bypass that game recognition.
+	char clientError[256] = {};
+	if (!gameconfs->LoadGameConfigFile("dhooks.games", &g_pDHooksClientGameConf,
+		clientError, sizeof(clientError)))
 	{
-		char clientError[256] = {};
-		if (!gameconfs->LoadGameConfigFile("dhooks", &g_pDHooksClientGameConf,
-			clientError, sizeof(clientError)))
-		{
-			smutils->LogMessage(myself,
-				"DHooks client entity support disabled: could not load dhooks gamedata: %s",
-				clientError);
-		}
-		else if (!g_DHooksClientEntities.Initialize(g_pDHooksClientGameConf,
-			clientError, sizeof(clientError)))
+		smutils->LogMessage(myself,
+			"DHooks client entity support disabled: could not load dhooks gamedata: %s",
+			clientError);
+	}
+	else
+	{
+		// No matching offset means this game's client ABI is not supported.
+		int clientListenersOffset;
+		if (g_pDHooksClientGameConf->GetOffset("ClientEntityListeners", &clientListenersOffset) &&
+			!g_DHooksClientEntities.Initialize(g_pDHooksClientGameConf,
+				clientError, sizeof(clientError)))
 		{
 			smutils->LogMessage(myself,
 				"DHooks client entity support disabled: %s", clientError);
