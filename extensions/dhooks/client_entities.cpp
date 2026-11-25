@@ -14,7 +14,7 @@
 namespace
 {
 constexpr uint32_t kClientEntRefMask = uint32_t{1} << 31;
-constexpr int kMaxNetworkedEntities = 2048;
+constexpr int kMaxNetworkedEntities = 4096;
 constexpr int kMaxEngineListeners = 1024;
 constexpr int kMaxEngineListenerAllocation = 4096;
 

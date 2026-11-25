@@ -2,6 +2,8 @@
 {
 	"bms"
 	{
+		// Black Mesa mods inherit this section through SteamAppID recognition.
+		// A section named after the active mod can override these offsets.
 		"Offsets"
 		{
 			// Byte offset from the IClientEntityList* returned by
